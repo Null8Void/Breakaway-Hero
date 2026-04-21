@@ -62,10 +62,11 @@ const LayeredRenderer = {
     defaultMaxHeight: 400,
     centerX: GAME_WIDTH / 2,
     centerY: GAME_HEIGHT / 2,
+    detachThreshold: 20,
     
     addLayer(id, url, order) {
         if (!this.layers[id]) {
-            this.layers[id] = { id, url, order, image: null, loaded: false, x: 0, y: 0 };
+            this.layers[id] = { id, url, order, image: null, loaded: false, x: 0, y: 0, detached: false };
         } else {
             this.layers[id].url = url;
             this.layers[id].order = order;
@@ -192,7 +193,6 @@ const LayeredRenderer = {
         const gamePos = screenToGame(screenX, screenY);
         const centerX = this.centerX;
         const centerY = this.centerY;
-        const dims = this.getScaledDimensions(layer);
         
         const layerCenterX = centerX + layer.x;
         const layerCenterY = centerY + layer.y;
@@ -202,6 +202,9 @@ const LayeredRenderer = {
             x: layerCenterX - gamePos.x,
             y: layerCenterY - gamePos.y
         };
+        gameState.layers.dragStartX = gamePos.x;
+        gameState.layers.dragStartY = gamePos.y;
+        gameState.layers.pendingDetach = !layer.detached;
     },
     
     updateDrag(screenX, screenY) {
@@ -217,25 +220,71 @@ const LayeredRenderer = {
         
         layer.x = gamePos.x + gameState.layers.dragOffset.x - centerX;
         layer.y = gamePos.y + gameState.layers.dragOffset.y - centerY;
+        
+        if (gameState.layers.pendingDetach) {
+            const dx = gamePos.x - gameState.layers.dragStartX;
+            const dy = gamePos.y - gameState.layers.dragStartY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > this.detachThreshold) {
+                layer.detached = true;
+                gameState.layers.pendingDetach = false;
+            }
+        }
     },
     
     endDrag() {
+        if (gameState.layers.dragging) {
+            const layer = this.layers[gameState.layers.dragging];
+            if (layer && layer.detached) {
+                layer.x = 0;
+                layer.y = 0;
+            }
+        }
         gameState.layers.dragging = null;
+        gameState.layers.pendingDetach = false;
     },
     
     getDraggingLayer() {
         return gameState.layers.dragging;
     },
     
-    resetPositions() {
+    isDetached(layerId) {
+        return this.layers[layerId]?.detached || false;
+    },
+    
+    reattachLayer(layerId) {
+        const layer = this.layers[layerId];
+        if (layer) {
+            layer.detached = false;
+            layer.x = 0;
+            layer.y = 0;
+        }
+    },
+    
+    reattachAll() {
         for (const layerId in this.layers) {
+            this.layers[layerId].detached = false;
             this.layers[layerId].x = 0;
             this.layers[layerId].y = 0;
         }
     },
     
+    resetPositions() {
+        for (const layerId in this.layers) {
+            if (!this.layers[layerId].detached) {
+                this.layers[layerId].x = 0;
+                this.layers[layerId].y = 0;
+            }
+        }
+    },
+    
     getLayerCount() {
         return Object.keys(this.layers).length;
+    },
+    
+    getDetachedCount() {
+        return Object.values(this.layers).filter(l => l.detached).length;
     }
 };
 
@@ -362,6 +411,8 @@ function render() {
     
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
+    const maxWidth = LayeredRenderer.defaultMaxWidth;
+    const maxHeight = LayeredRenderer.defaultMaxHeight;
     
     if (LayeredRenderer.getLayerCount() > 0) {
         LayeredRenderer.renderLayers(centerX, centerY);
@@ -373,11 +424,26 @@ function render() {
             const drawX = centerX - dims.width / 2 + layer.x;
             const drawY = centerY - dims.height / 2 + layer.y;
             
-            ctx.strokeStyle = '#ff6b6b';
+            ctx.strokeStyle = layer.detached ? '#ff6b6b' : '#ffd93d';
             ctx.lineWidth = 3;
-            ctx.setLineDash([5, 5]);
+            ctx.setLineDash(layer.detached ? [] : [5, 5]);
             ctx.strokeRect(drawX - 2, drawY - 2, dims.width + 4, dims.height + 4);
             ctx.setLineDash([]);
+        }
+        
+        for (const layerId of gameState.layers.layerOrder) {
+            const layer = LayeredRenderer.layers[layerId];
+            if (layer && layer.detached && layerId !== draggingLayerId) {
+                const dims = LayeredRenderer.getScaledDimensions(layer);
+                const drawX = centerX - dims.width / 2 + layer.x;
+                const drawY = centerY - dims.height / 2 + layer.y;
+                
+                ctx.strokeStyle = '#ff6b6b';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(drawX - 2, drawY - 2, dims.width + 4, dims.height + 4);
+                ctx.setLineDash([]);
+            }
         }
         
         const char = ImageLoader.getCurrentCharacter();
@@ -389,8 +455,10 @@ function render() {
             
             ctx.font = '16px Arial';
             ctx.fillStyle = '#aaa';
-            const layerInfo = `Layers: ${LayeredRenderer.getLayerCount()} | Order: ${gameState.layers.layerOrder.join(' > ')}`;
+            const detachedCount = LayeredRenderer.getDetachedCount();
+            const layerInfo = `Layers: ${LayeredRenderer.getLayerCount()} | Detached: ${detachedCount} | Order: ${gameState.layers.layerOrder.join(' > ')}`;
             ctx.fillText(layerInfo, centerX, centerY + maxHeight / 2 + 70);
+            ctx.fillText('Drag layer > 20px to detach | Release to reattach', centerX, centerY + maxHeight / 2 + 95);
         }
     } else {
         ctx.fillStyle = '#fff';
