@@ -45,8 +45,109 @@ const gameState = {
         loadedImages: {},
         loading: false
     },
+    layers: {
+        loadedImages: {},
+        layerOrder: []
+    },
     lastTime: 0,
     deltaTime: 0
+};
+
+const LayeredRenderer = {
+    layers: {},
+    nextLayerId: 1,
+    
+    addLayer(id, url, order) {
+        if (!this.layers[id]) {
+            this.layers[id] = { id, url, order, image: null, loaded: false };
+        } else {
+            this.layers[id].url = url;
+            this.layers[id].order = order;
+            this.layers[id].loaded = false;
+            this.layers[id].image = null;
+        }
+        this.updateLayerOrder();
+        return this.loadLayer(id);
+    },
+    
+    removeLayer(id) {
+        delete this.layers[id];
+        delete gameState.layers.loadedImages[id];
+        this.updateLayerOrder();
+    },
+    
+    updateLayerOrder() {
+        gameState.layers.layerOrder = Object.values(this.layers)
+            .sort((a, b) => a.order - b.order)
+            .map(l => l.id);
+    },
+    
+    async loadLayer(id) {
+        const layer = this.layers[id];
+        if (!layer) return null;
+        
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                layer.image = img;
+                layer.loaded = true;
+                gameState.layers.loadedImages[id] = img;
+                resolve(img);
+            };
+            img.onerror = () => {
+                console.warn(`Failed to load layer: ${layer.url}`);
+                layer.loaded = true;
+                resolve(null);
+            };
+            img.src = layer.url;
+        });
+    },
+    
+    getLayer(id) {
+        return this.layers[id];
+    },
+    
+    setLayerOrder(id, order) {
+        if (this.layers[id]) {
+            this.layers[id].order = order;
+            this.updateLayerOrder();
+        }
+    },
+    
+    clearAll() {
+        this.layers = {};
+        gameState.layers.loadedImages = {};
+        gameState.layers.layerOrder = [];
+    },
+    
+    renderLayers(centerX, centerY, maxWidth, maxHeight) {
+        for (const layerId of gameState.layers.layerOrder) {
+            const layer = this.layers[layerId];
+            if (layer && layer.image) {
+                let width = layer.image.width;
+                let height = layer.image.height;
+                
+                if (width > maxWidth || height > maxHeight) {
+                    const ratio = Math.min(maxWidth / width, maxHeight / height);
+                    width *= ratio;
+                    height *= ratio;
+                }
+                
+                ctx.drawImage(
+                    layer.image,
+                    centerX - width / 2,
+                    centerY - height / 2,
+                    width,
+                    height
+                );
+            }
+        }
+    },
+    
+    getLayerCount() {
+        return Object.keys(this.layers).length;
+    }
 };
 
 const ImageLoader = {
@@ -170,47 +271,32 @@ function render() {
         }
     }
     
-    const charImage = ImageLoader.getCurrentImage();
-    if (charImage) {
-        const maxWidth = 300;
-        const maxHeight = 400;
-        let width = charImage.width;
-        let height = charImage.height;
-        
-        if (width > maxWidth || height > maxHeight) {
-            const ratio = Math.min(maxWidth / width, maxHeight / height);
-            width *= ratio;
-            height *= ratio;
-        }
-        
-        const centerX = GAME_WIDTH / 2;
-        const centerY = GAME_HEIGHT / 2;
-        
-        ctx.drawImage(
-            charImage,
-            centerX - width / 2,
-            centerY - height / 2,
-            width,
-            height
-        );
+    const centerX = GAME_WIDTH / 2;
+    const centerY = GAME_HEIGHT / 2;
+    const maxWidth = 300;
+    const maxHeight = 400;
+    
+    if (LayeredRenderer.getLayerCount() > 0) {
+        LayeredRenderer.renderLayers(centerX, centerY, maxWidth, maxHeight);
         
         const char = ImageLoader.getCurrentCharacter();
         if (char) {
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 24px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(char.name, centerX, centerY + height / 2 + 40);
+            ctx.fillText(char.name, centerX, centerY + maxHeight / 2 + 40);
             
             ctx.font = '16px Arial';
             ctx.fillStyle = '#aaa';
-            ctx.fillText(`${gameState.imageLoader.currentIndex + 1} / ${ImageLoader.characters.length} (Arrow keys to navigate)`, centerX, centerY + height / 2 + 70);
+            const layerInfo = `Layers: ${LayeredRenderer.getLayerCount()} | Order: ${gameState.layers.layerOrder.join(' > ')}`;
+            ctx.fillText(layerInfo, centerX, centerY + maxHeight / 2 + 70);
         }
     } else {
         ctx.fillStyle = '#fff';
         ctx.font = '20px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('No character loaded', GAME_WIDTH / 2, GAME_HEIGHT / 2);
-        ctx.fillText('Add images to images/ folder', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30);
+        ctx.fillText('No layers loaded', centerX, centerY);
+        ctx.fillText('Use LayeredRenderer.addLayer()', centerX, centerY + 30);
     }
     
     ctx.fillStyle = gameState.player.color;
@@ -337,3 +423,8 @@ window.addEventListener('resize', resizeCanvas);
 
 resizeCanvas();
 requestAnimationFrame(gameLoop);
+
+LayeredRenderer.addLayer('body', 'images/layer_body.png', 1);
+LayeredRenderer.addLayer('outfit', 'images/layer_outfit.png', 2);
+LayeredRenderer.addLayer('weapon', 'images/layer_weapon.png', 3);
+LayeredRenderer.addLayer('effects', 'images/layer_effects.png', 4);
