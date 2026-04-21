@@ -47,7 +47,9 @@ const gameState = {
     },
     layers: {
         loadedImages: {},
-        layerOrder: []
+        layerOrder: [],
+        dragging: null,
+        dragOffset: { x: 0, y: 0 }
     },
     lastTime: 0,
     deltaTime: 0
@@ -56,10 +58,14 @@ const gameState = {
 const LayeredRenderer = {
     layers: {},
     nextLayerId: 1,
+    defaultMaxWidth: 300,
+    defaultMaxHeight: 400,
+    centerX: GAME_WIDTH / 2,
+    centerY: GAME_HEIGHT / 2,
     
     addLayer(id, url, order) {
         if (!this.layers[id]) {
-            this.layers[id] = { id, url, order, image: null, loaded: false };
+            this.layers[id] = { id, url, order, image: null, loaded: false, x: 0, y: 0 };
         } else {
             this.layers[id].url = url;
             this.layers[id].order = order;
@@ -121,27 +127,110 @@ const LayeredRenderer = {
         gameState.layers.layerOrder = [];
     },
     
-    renderLayers(centerX, centerY, maxWidth, maxHeight) {
+    getScaledDimensions(layer) {
+        const maxWidth = this.defaultMaxWidth;
+        const maxHeight = this.defaultMaxHeight;
+        let width = layer.image.width;
+        let height = layer.image.height;
+        
+        if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width *= ratio;
+            height *= ratio;
+        }
+        
+        return { width, height };
+    },
+    
+    renderLayers(centerX, centerY) {
         for (const layerId of gameState.layers.layerOrder) {
             const layer = this.layers[layerId];
             if (layer && layer.image) {
-                let width = layer.image.width;
-                let height = layer.image.height;
-                
-                if (width > maxWidth || height > maxHeight) {
-                    const ratio = Math.min(maxWidth / width, maxHeight / height);
-                    width *= ratio;
-                    height *= ratio;
-                }
+                const dims = this.getScaledDimensions(layer);
+                const drawX = centerX - dims.width / 2 + layer.x;
+                const drawY = centerY - dims.height / 2 + layer.y;
                 
                 ctx.drawImage(
                     layer.image,
-                    centerX - width / 2,
-                    centerY - height / 2,
-                    width,
-                    height
+                    drawX,
+                    drawY,
+                    dims.width,
+                    dims.height
                 );
             }
+        }
+    },
+    
+    hitTest(screenX, screenY) {
+        const gamePos = screenToGame(screenX, screenY);
+        const centerX = this.centerX;
+        const centerY = this.centerY;
+        
+        const orderedLayers = [...gameState.layers.layerOrder].reverse();
+        
+        for (const layerId of orderedLayers) {
+            const layer = this.layers[layerId];
+            if (!layer || !layer.image) continue;
+            
+            const dims = this.getScaledDimensions(layer);
+            const drawX = centerX - dims.width / 2 + layer.x;
+            const drawY = centerY - dims.height / 2 + layer.y;
+            
+            if (gamePos.x >= drawX && gamePos.x <= drawX + dims.width &&
+                gamePos.y >= drawY && gamePos.y <= drawY + dims.height) {
+                return layerId;
+            }
+        }
+        
+        return null;
+    },
+    
+    startDrag(layerId, screenX, screenY) {
+        const layer = this.layers[layerId];
+        if (!layer) return;
+        
+        const gamePos = screenToGame(screenX, screenY);
+        const centerX = this.centerX;
+        const centerY = this.centerY;
+        const dims = this.getScaledDimensions(layer);
+        
+        const layerCenterX = centerX + layer.x;
+        const layerCenterY = centerY + layer.y;
+        
+        gameState.layers.dragging = layerId;
+        gameState.layers.dragOffset = {
+            x: layerCenterX - gamePos.x,
+            y: layerCenterY - gamePos.y
+        };
+    },
+    
+    updateDrag(screenX, screenY) {
+        if (!gameState.layers.dragging) return;
+        
+        const layerId = gameState.layers.dragging;
+        const layer = this.layers[layerId];
+        if (!layer) return;
+        
+        const gamePos = screenToGame(screenX, screenY);
+        const centerX = this.centerX;
+        const centerY = this.centerY;
+        
+        layer.x = gamePos.x + gameState.layers.dragOffset.x - centerX;
+        layer.y = gamePos.y + gameState.layers.dragOffset.y - centerY;
+    },
+    
+    endDrag() {
+        gameState.layers.dragging = null;
+    },
+    
+    getDraggingLayer() {
+        return gameState.layers.dragging;
+    },
+    
+    resetPositions() {
+        for (const layerId in this.layers) {
+            this.layers[layerId].x = 0;
+            this.layers[layerId].y = 0;
         }
     },
     
@@ -273,11 +362,23 @@ function render() {
     
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
-    const maxWidth = 300;
-    const maxHeight = 400;
     
     if (LayeredRenderer.getLayerCount() > 0) {
-        LayeredRenderer.renderLayers(centerX, centerY, maxWidth, maxHeight);
+        LayeredRenderer.renderLayers(centerX, centerY);
+        
+        const draggingLayerId = LayeredRenderer.getDraggingLayer();
+        if (draggingLayerId) {
+            const layer = LayeredRenderer.layers[draggingLayerId];
+            const dims = LayeredRenderer.getScaledDimensions(layer);
+            const drawX = centerX - dims.width / 2 + layer.x;
+            const drawY = centerY - dims.height / 2 + layer.y;
+            
+            ctx.strokeStyle = '#ff6b6b';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(drawX - 2, drawY - 2, dims.width + 4, dims.height + 4);
+            ctx.setLineDash([]);
+        }
         
         const char = ImageLoader.getCurrentCharacter();
         if (char) {
@@ -360,32 +461,50 @@ function screenToGame(clientX, clientY) {
 }
 
 function handleInputStart(x, y) {
-    const pos = screenToGame(x, y);
-    gameState.input.active = true;
-    gameState.input.startX = pos.x;
-    gameState.input.startY = pos.y;
-    gameState.input.currentX = pos.x;
-    gameState.input.currentY = pos.y;
+    const layerId = LayeredRenderer.hitTest(x, y);
+    
+    if (layerId && LayeredRenderer.getLayer(layerId)?.loaded) {
+        LayeredRenderer.startDrag(layerId, x, y);
+        gameState.input.active = true;
+        gameState.input.startX = x;
+        gameState.input.startY = y;
+        gameState.input.currentX = x;
+        gameState.input.currentY = y;
+    } else {
+        const pos = screenToGame(x, y);
+        gameState.input.active = true;
+        gameState.input.startX = pos.x;
+        gameState.input.startY = pos.y;
+        gameState.input.currentX = pos.x;
+        gameState.input.currentY = pos.y;
+    }
 }
 
 function handleInputMove(x, y) {
     if (!gameState.input.active) return;
     
-    const pos = screenToGame(x, y);
-    gameState.input.currentX = pos.x;
-    gameState.input.currentY = pos.y;
-    
-    const dx = pos.x - gameState.input.startX;
-    const dy = pos.y - gameState.input.startY;
-    
-    gameState.player.x = Math.max(gameState.player.size, Math.min(GAME_WIDTH - gameState.player.size, gameState.player.x + dx));
-    gameState.player.y = Math.max(gameState.player.size, Math.min(GAME_HEIGHT - gameState.player.size, gameState.player.y + dy));
-    
-    gameState.input.startX = pos.x;
-    gameState.input.startY = pos.y;
+    if (gameState.layers.dragging) {
+        LayeredRenderer.updateDrag(x, y);
+    } else {
+        const pos = screenToGame(x, y);
+        gameState.input.currentX = pos.x;
+        gameState.input.currentY = pos.y;
+        
+        const dx = pos.x - gameState.input.startX;
+        const dy = pos.y - gameState.input.startY;
+        
+        gameState.player.x = Math.max(gameState.player.size, Math.min(GAME_WIDTH - gameState.player.size, gameState.player.x + dx));
+        gameState.player.y = Math.max(gameState.player.size, Math.min(GAME_HEIGHT - gameState.player.size, gameState.player.y + dy));
+        
+        gameState.input.startX = pos.x;
+        gameState.input.startY = pos.y;
+    }
 }
 
 function handleInputEnd() {
+    if (gameState.layers.dragging) {
+        LayeredRenderer.endDrag();
+    }
     gameState.input.active = false;
 }
 
