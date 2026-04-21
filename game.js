@@ -192,31 +192,23 @@ const LayeredRenderer = {
             const layer = this.layers[layerId];
             if (!layer || !layer.image || layer.destroyed) continue;
             
-            if (layer.grid) {
-                const dims = this.getScaledDimensions(layer);
-                const drawX = centerX - dims.width / 2 + layer.x;
-                const drawY = centerY - dims.height / 2 + layer.y;
+            const dims = this.getScaledDimensions(layer);
+            const drawX = centerX - dims.width / 2 + layer.x;
+            const drawY = centerY - dims.height / 2 + layer.y;
+            
+            if (gamePos.x >= drawX && gamePos.x <= drawX + dims.width &&
+                gamePos.y >= drawY && gamePos.y <= drawY + dims.height) {
                 
                 const localX = gamePos.x - drawX;
                 const localY = gamePos.y - drawY;
+                const cellCol = Math.floor(localX / FragmentSystem.cellSize);
+                const cellRow = Math.floor(localY / FragmentSystem.cellSize);
                 
-                if (localX >= 0 && localX <= dims.width && localY >= 0 && localY <= dims.height) {
-                    const cellCol = Math.floor(localX / FragmentSystem.cellSize);
-                    const cellRow = Math.floor(localY / FragmentSystem.cellSize);
-                    
-                    if (layer.grid.cells[cellRow] && !layer.grid.cells[cellRow][cellCol]) {
-                        return layerId;
-                    }
+                if (layer.grid && layer.grid.cells[cellRow] && layer.grid.cells[cellRow][cellCol]) {
+                    continue;
                 }
-            } else {
-                const dims = this.getScaledDimensions(layer);
-                const drawX = centerX - dims.width / 2 + layer.x;
-                const drawY = centerY - dims.height / 2 + layer.y;
                 
-                if (gamePos.x >= drawX && gamePos.x <= drawX + dims.width &&
-                    gamePos.y >= drawY && gamePos.y <= drawY + dims.height) {
-                    return layerId;
-                }
+                return layerId;
             }
         }
         
