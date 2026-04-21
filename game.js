@@ -199,17 +199,21 @@ const LayeredRenderer = {
             if (gamePos.x >= drawX && gamePos.x <= drawX + dims.width &&
                 gamePos.y >= drawY && gamePos.y <= drawY + dims.height) {
                 
-                const localX = gamePos.x - drawX;
-                const localY = gamePos.y - drawY;
-                const cellCol = Math.floor(localX / FragmentSystem.cellSize);
-                const cellRow = Math.floor(localY / FragmentSystem.cellSize);
-                
-                if (layer.grid && layer.grid.cells[cellRow] && layer.grid.cells[cellRow][cellCol]) {
-                    continue;
+                if (layer.grid) {
+                    const localX = gamePos.x - drawX;
+                    const localY = gamePos.y - drawY;
+                    const cellCol = Math.floor(localX / FragmentSystem.cellSize);
+                    const cellRow = Math.floor(localY / FragmentSystem.cellSize);
+                    
+                    if (!layer.grid.cells[cellRow] || !layer.grid.cells[cellRow][cellCol]) {
+                        return layerId;
+                    }
+                } else {
+                    return layerId;
                 }
-                
-                return layerId;
             }
+            
+            return null;
         }
         
         return null;
