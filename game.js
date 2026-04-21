@@ -237,6 +237,7 @@ const LayeredRenderer = {
         if (gameState.layers.dragging) {
             const layer = this.layers[gameState.layers.dragging];
             if (layer && layer.detached) {
+                FragmentSystem.spawnShatterFragments(gameState.layers.dragging);
                 layer.x = 0;
                 layer.y = 0;
             }
@@ -285,6 +286,166 @@ const LayeredRenderer = {
     
     getDetachedCount() {
         return Object.values(this.layers).filter(l => l.detached).length;
+    }
+};
+
+const FragmentSystem = {
+    fragments: [],
+    gravity: 400,
+    maxFragments: 100,
+    
+    createFragment(layerId, x, y, width, height, imageData) {
+        if (this.fragments.length >= this.maxFragments) {
+            this.fragments.shift();
+        }
+        
+        this.fragments.push({
+            id: layerId + '_' + Date.now() + '_' + Math.random(),
+            layerId,
+            x, y,
+            width, height,
+            imageData,
+            vx: (Math.random() - 0.5) * 100,
+            vy: (Math.random() - 0.5) * 50 - 50,
+            rotation: Math.random() * Math.PI * 2,
+            angularVel: (Math.random() - 0.5) * 3,
+            alpha: 1,
+            scale: 1
+        });
+    },
+    
+    createFragmentsFromDrag(layerId, startX, startY, endX, endY, layer) {
+        const centerX = this.centerX;
+        const centerY = this.centerY;
+        const dims = this.getScaledDimensions(layer);
+        const layerDrawX = centerX - dims.width / 2 + layer.x;
+        const layerDrawY = centerY - dims.height / 2 + layer.y;
+        
+        const fragmentSize = 30;
+        
+        const minX = Math.min(startX, endX);
+        const minY = Math.min(startY, endY);
+        const maxX = Math.max(startX, endX);
+        const maxY = Math.max(startY, endY);
+        
+        for (let fx = layerDrawX; fx < layerDrawX + dims.width; fx += fragmentSize) {
+            for (let fy = layerDrawY; fy < layerDrawY + dims.height; fy += fragmentSize) {
+                const fragX = fx;
+                const fragY = fy;
+                const fragW = Math.min(fragmentSize, layerDrawX + dims.width - fx);
+                const fragH = Math.min(fragmentSize, layerDrawY + dims.height - fy);
+                
+                if (fragX + fragW > minX && fragX < maxX && fragY + fragH > minY && fragY < maxY) {
+                    this.createFragment(layerId, fragX, fragY, fragW, fragH, null);
+                }
+            }
+        }
+    },
+    
+    spawnShatterFragments(layerId) {
+        const layer = LayeredRenderer.layers[layerId];
+        if (!layer || !layer.image) return;
+        
+        const dims = this.getScaledDimensions(layer);
+        const centerX = this.centerX;
+        const centerY = this.centerY;
+        const layerDrawX = centerX - dims.width / 2 + layer.x;
+        const layerDrawY = centerY - dims.height / 2 + layer.y;
+        
+        const fragmentSize = 25;
+        const cols = Math.ceil(dims.width / fragmentSize);
+        const rows = Math.ceil(dims.height / fragmentSize);
+        
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const fx = layerDrawX + col * fragmentSize;
+                const fy = layerDrawY + row * fragmentSize;
+                const fw = Math.min(fragmentSize, layerDrawX + dims.width - fx);
+                const fh = Math.min(fragmentSize, layerDrawY + dims.height - fy);
+                
+                if (this.fragments.length >= this.maxFragments) {
+                    this.fragments.shift();
+                }
+                
+                this.fragments.push({
+                    id: layerId + '_' + Date.now() + '_' + Math.random(),
+                    layerId,
+                    x: fx,
+                    y: fy,
+                    width: fw,
+                    height: fh,
+                    vx: (Math.random() - 0.5) * 150,
+                    vy: (Math.random() - 0.5) * 150,
+                    rotation: Math.random() * Math.PI * 2,
+                    angularVel: (Math.random() - 0.5) * 5,
+                    alpha: 1,
+                    scale: 1,
+                    lifetime: 0,
+                    maxLifetime: 3 + Math.random() * 2
+                });
+            }
+        }
+    },
+    
+    update(dt) {
+        for (let i = this.fragments.length - 1; i >= 0; i--) {
+            const frag = this.fragments[i];
+            
+            frag.vy += this.gravity * dt;
+            
+            frag.x += frag.vx * dt;
+            frag.y += frag.vy * dt;
+            
+            frag.rotation += frag.angularVel * dt;
+            
+            frag.lifetime += dt;
+            if (frag.lifetime > frag.maxLifetime) {
+                frag.alpha -= dt * 0.5;
+            }
+            
+            if (frag.y > GAME_HEIGHT + 100 || frag.alpha <= 0 || 
+                frag.x < -100 || frag.x > GAME_WIDTH + 100) {
+                this.fragments.splice(i, 1);
+            }
+        }
+    },
+    
+    render() {
+        const centerX = this.centerX;
+        const centerY = this.centerY;
+        
+        for (const frag of this.fragments) {
+            const layer = LayeredRenderer.layers[frag.layerId];
+            if (!layer || !layer.image) continue;
+            
+            ctx.save();
+            ctx.globalAlpha = frag.alpha;
+            
+            const centerFx = frag.x + frag.width / 2;
+            const centerFy = frag.y + frag.height / 2;
+            
+            ctx.translate(centerFx, centerFy);
+            ctx.rotate(frag.rotation);
+            ctx.scale(frag.scale, frag.scale);
+            
+            ctx.drawImage(
+                layer.image,
+                -frag.width / 2,
+                -frag.height / 2,
+                frag.width,
+                frag.height
+            );
+            
+            ctx.restore();
+        }
+    },
+    
+    clear() {
+        this.fragments = [];
+    },
+    
+    getCount() {
+        return this.fragments.length;
     }
 };
 
@@ -394,6 +555,8 @@ function update(dt) {
             lastNavTime = now;
         }
     }
+    
+    FragmentSystem.update(dt);
 }
 
 function render() {
@@ -416,6 +579,7 @@ function render() {
     
     if (LayeredRenderer.getLayerCount() > 0) {
         LayeredRenderer.renderLayers(centerX, centerY);
+        FragmentSystem.render();
         
         const draggingLayerId = LayeredRenderer.getDraggingLayer();
         if (draggingLayerId) {
