@@ -146,11 +146,30 @@ const LayeredRenderer = {
     renderLayers(centerX, centerY) {
         for (const layerId of gameState.layers.layerOrder) {
             const layer = this.layers[layerId];
-            if (layer && layer.image) {
-                const dims = this.getScaledDimensions(layer);
-                const drawX = centerX - dims.width / 2 + layer.x;
-                const drawY = centerY - dims.height / 2 + layer.y;
-                
+            if (!layer || !layer.image || layer.destroyed) continue;
+            
+            const dims = this.getScaledDimensions(layer);
+            const drawX = centerX - dims.width / 2 + layer.x;
+            const drawY = centerY - dims.height / 2 + layer.y;
+            
+            if (layer.grid) {
+                for (let row = 0; row < layer.grid.rows; row++) {
+                    for (let col = 0; col < layer.grid.cols; col++) {
+                        if (layer.grid.cells[row] && !layer.grid.cells[row][col]) {
+                            const srcX = col * FragmentSystem.cellSize;
+                            const srcY = row * FragmentSystem.cellSize;
+                            const srcW = Math.min(FragmentSystem.cellSize, dims.width - srcX);
+                            const srcH = Math.min(FragmentSystem.cellSize, dims.height - srcY);
+                            
+                            ctx.drawImage(
+                                layer.image,
+                                srcX, srcY, srcW, srcH,
+                                drawX + srcX, drawY + srcY, srcW, srcH
+                            );
+                        }
+                    }
+                }
+            } else {
                 ctx.drawImage(
                     layer.image,
                     drawX,
@@ -171,15 +190,33 @@ const LayeredRenderer = {
         
         for (const layerId of orderedLayers) {
             const layer = this.layers[layerId];
-            if (!layer || !layer.image) continue;
+            if (!layer || !layer.image || layer.destroyed) continue;
             
-            const dims = this.getScaledDimensions(layer);
-            const drawX = centerX - dims.width / 2 + layer.x;
-            const drawY = centerY - dims.height / 2 + layer.y;
-            
-            if (gamePos.x >= drawX && gamePos.x <= drawX + dims.width &&
-                gamePos.y >= drawY && gamePos.y <= drawY + dims.height) {
-                return layerId;
+            if (layer.grid) {
+                const dims = this.getScaledDimensions(layer);
+                const drawX = centerX - dims.width / 2 + layer.x;
+                const drawY = centerY - dims.height / 2 + layer.y;
+                
+                const localX = gamePos.x - drawX;
+                const localY = gamePos.y - drawY;
+                
+                if (localX >= 0 && localX <= dims.width && localY >= 0 && localY <= dims.height) {
+                    const cellCol = Math.floor(localX / FragmentSystem.cellSize);
+                    const cellRow = Math.floor(localY / FragmentSystem.cellSize);
+                    
+                    if (layer.grid.cells[cellRow] && !layer.grid.cells[cellRow][cellCol]) {
+                        return layerId;
+                    }
+                }
+            } else {
+                const dims = this.getScaledDimensions(layer);
+                const drawX = centerX - dims.width / 2 + layer.x;
+                const drawY = centerY - dims.height / 2 + layer.y;
+                
+                if (gamePos.x >= drawX && gamePos.x <= drawX + dims.width &&
+                    gamePos.y >= drawY && gamePos.y <= drawY + dims.height) {
+                    return layerId;
+                }
             }
         }
         
@@ -236,8 +273,7 @@ const LayeredRenderer = {
     endDrag() {
         if (gameState.layers.dragging) {
             const layer = this.layers[gameState.layers.dragging];
-            if (layer && layer.detached) {
-                FragmentSystem.spawnShatterFragments(gameState.layers.dragging);
+            if (layer && layer.detached && !layer.destroyed) {
                 layer.x = 0;
                 layer.y = 0;
             }
@@ -291,99 +327,132 @@ const LayeredRenderer = {
 
 const FragmentSystem = {
     fragments: [],
-    gravity: 400,
-    maxFragments: 100,
+    gravity: 500,
+    maxFragments: 200,
+    cellSize: 25,
     
-    createFragment(layerId, x, y, width, height, imageData) {
+    initLayerGrid(layerId) {
+        const layer = LayeredRenderer.layers[layerId];
+        if (!layer) return;
+        
+        const dims = LayeredRenderer.getScaledDimensions(layer);
+        const cols = Math.ceil(dims.width / this.cellSize);
+        const rows = Math.ceil(dims.height / this.cellSize);
+        
+        layer.grid = {
+            cols,
+            rows,
+            cells: [],
+            totalCells: cols * rows,
+            brokenCells: 0
+        };
+        
+        for (let row = 0; row < rows; row++) {
+            layer.grid.cells[row] = [];
+            for (let col = 0; col < cols; col++) {
+                layer.grid.cells[row][col] = false;
+            }
+        }
+    },
+    
+    carveArea(layerId, startX, startY, endX, endY) {
+        const layer = LayeredRenderer.layers[layerId];
+        if (!layer || !layer.image || !layer.grid) return;
+        
+        const dims = LayeredRenderer.getScaledDimensions(layer);
+        const centerX = LayeredRenderer.centerX;
+        const centerY = LayeredRenderer.centerY;
+        const layerDrawX = centerX - dims.width / 2 + layer.x;
+        const layerDrawY = centerY - dims.height / 2 + layer.y;
+        
+        const minX = Math.min(startX, endX) - layerDrawX;
+        const minY = Math.min(startY, endY) - layerDrawY;
+        const maxX = Math.max(startX, endX) - layerDrawX;
+        const maxY = Math.max(startY, endY) - layerDrawY;
+        
+        let carved = false;
+        
+        for (let row = 0; row < layer.grid.rows; row++) {
+            for (let col = 0; col < layer.grid.cols; col++) {
+                if (layer.grid.cells[row][col]) continue;
+                
+                const cellX = col * this.cellSize;
+                const cellY = row * this.cellSize;
+                const cellW = Math.min(this.cellSize, dims.width - cellX);
+                const cellH = Math.min(this.cellSize, dims.height - cellY);
+                
+                const cellCenterX = cellX + cellW / 2;
+                const cellCenterY = cellY + cellH / 2;
+                
+                if (cellCenterX >= minX && cellCenterX <= maxX &&
+                    cellCenterY >= minY && cellCenterY <= maxY) {
+                    
+                    const fragX = layerDrawX + cellX;
+                    const fragY = layerDrawY + cellY;
+                    this.createFragment(layerId, fragX, fragY, cellW, cellH);
+                    
+                    layer.grid.cells[row][col] = true;
+                    layer.grid.brokenCells++;
+                    carved = true;
+                }
+            }
+        }
+        
+        if (layer.grid.brokenCells >= layer.grid.totalCells) {
+            this.destroyLayer(layerId);
+        }
+        
+        return carved;
+    },
+    
+    createFragment(layerId, x, y, width, height) {
         if (this.fragments.length >= this.maxFragments) {
             this.fragments.shift();
         }
         
         this.fragments.push({
-            id: layerId + '_' + Date.now() + '_' + Math.random(),
             layerId,
-            x, y,
-            width, height,
-            imageData,
-            vx: (Math.random() - 0.5) * 100,
-            vy: (Math.random() - 0.5) * 50 - 50,
+            x,
+            y,
+            width,
+            height,
+            vx: (Math.random() - 0.5) * 200,
+            vy: (Math.random() - 0.5) * 200 - 100,
             rotation: Math.random() * Math.PI * 2,
-            angularVel: (Math.random() - 0.5) * 3,
+            angularVel: (Math.random() - 0.5) * 8,
             alpha: 1,
-            scale: 1
+            lifetime: 0,
+            maxLifetime: 2 + Math.random() * 2
         });
     },
     
-    createFragmentsFromDrag(layerId, startX, startY, endX, endY, layer) {
-        const centerX = this.centerX;
-        const centerY = this.centerY;
-        const dims = this.getScaledDimensions(layer);
-        const layerDrawX = centerX - dims.width / 2 + layer.x;
-        const layerDrawY = centerY - dims.height / 2 + layer.y;
-        
-        const fragmentSize = 30;
-        
-        const minX = Math.min(startX, endX);
-        const minY = Math.min(startY, endY);
-        const maxX = Math.max(startX, endX);
-        const maxY = Math.max(startY, endY);
-        
-        for (let fx = layerDrawX; fx < layerDrawX + dims.width; fx += fragmentSize) {
-            for (let fy = layerDrawY; fy < layerDrawY + dims.height; fy += fragmentSize) {
-                const fragX = fx;
-                const fragY = fy;
-                const fragW = Math.min(fragmentSize, layerDrawX + dims.width - fx);
-                const fragH = Math.min(fragmentSize, layerDrawY + dims.height - fy);
-                
-                if (fragX + fragW > minX && fragX < maxX && fragY + fragH > minY && fragY < maxY) {
-                    this.createFragment(layerId, fragX, fragY, fragW, fragH, null);
-                }
-            }
+    destroyLayer(layerId) {
+        const layer = LayeredRenderer.layers[layerId];
+        if (layer) {
+            layer.destroyed = true;
+            layer.x = 0;
+            layer.y = 0;
+            layer.detached = false;
         }
     },
     
-    spawnShatterFragments(layerId) {
+    isLayerDestroyed(layerId) {
         const layer = LayeredRenderer.layers[layerId];
-        if (!layer || !layer.image) return;
+        return layer?.destroyed || false;
+    },
+    
+    restoreLayer(layerId) {
+        const layer = LayeredRenderer.layers[layerId];
+        if (!layer) return;
         
-        const dims = this.getScaledDimensions(layer);
-        const centerX = this.centerX;
-        const centerY = this.centerY;
-        const layerDrawX = centerX - dims.width / 2 + layer.x;
-        const layerDrawY = centerY - dims.height / 2 + layer.y;
-        
-        const fragmentSize = 25;
-        const cols = Math.ceil(dims.width / fragmentSize);
-        const rows = Math.ceil(dims.height / fragmentSize);
-        
-        for (let row = 0; row < rows; row++) {
-            for (let col = 0; col < cols; col++) {
-                const fx = layerDrawX + col * fragmentSize;
-                const fy = layerDrawY + row * fragmentSize;
-                const fw = Math.min(fragmentSize, layerDrawX + dims.width - fx);
-                const fh = Math.min(fragmentSize, layerDrawY + dims.height - fy);
-                
-                if (this.fragments.length >= this.maxFragments) {
-                    this.fragments.shift();
-                }
-                
-                this.fragments.push({
-                    id: layerId + '_' + Date.now() + '_' + Math.random(),
-                    layerId,
-                    x: fx,
-                    y: fy,
-                    width: fw,
-                    height: fh,
-                    vx: (Math.random() - 0.5) * 150,
-                    vy: (Math.random() - 0.5) * 150,
-                    rotation: Math.random() * Math.PI * 2,
-                    angularVel: (Math.random() - 0.5) * 5,
-                    alpha: 1,
-                    scale: 1,
-                    lifetime: 0,
-                    maxLifetime: 3 + Math.random() * 2
-                });
-            }
+        layer.destroyed = false;
+        layer.grid = null;
+        this.initLayerGrid(layerId);
+    },
+    
+    restoreAllLayers() {
+        for (const layerId in LayeredRenderer.layers) {
+            this.restoreLayer(layerId);
         }
     },
     
@@ -392,28 +461,49 @@ const FragmentSystem = {
             const frag = this.fragments[i];
             
             frag.vy += this.gravity * dt;
-            
             frag.x += frag.vx * dt;
             frag.y += frag.vy * dt;
-            
             frag.rotation += frag.angularVel * dt;
             
             frag.lifetime += dt;
             if (frag.lifetime > frag.maxLifetime) {
-                frag.alpha -= dt * 0.5;
+                frag.alpha -= dt * 0.8;
             }
             
-            if (frag.y > GAME_HEIGHT + 100 || frag.alpha <= 0 || 
-                frag.x < -100 || frag.x > GAME_WIDTH + 100) {
+            if (frag.y > GAME_HEIGHT + 50 || frag.alpha <= 0) {
                 this.fragments.splice(i, 1);
             }
         }
     },
     
-    render() {
-        const centerX = this.centerX;
-        const centerY = this.centerY;
+    renderLayerCell(layerId, cellCol, cellRow) {
+        const layer = LayeredRenderer.layers[layerId];
+        if (!layer || !layer.image || !layer.grid) return;
         
+        if (layer.grid.cells[cellRow] && layer.grid.cells[cellRow][cellCol]) return;
+        
+        const dims = LayeredRenderer.getScaledDimensions(layer);
+        const centerX = LayeredRenderer.centerX;
+        const centerY = LayeredRenderer.centerY;
+        const layerDrawX = centerX - dims.width / 2 + layer.x;
+        const layerDrawY = centerY - dims.height / 2 + layer.y;
+        
+        const srcX = cellCol * this.cellSize;
+        const srcY = cellRow * this.cellSize;
+        const srcW = Math.min(this.cellSize, dims.width - srcX);
+        const srcH = Math.min(this.cellSize, dims.height - srcY);
+        
+        const dstX = layerDrawX + cellCol * this.cellSize;
+        const dstY = layerDrawY + cellRow * this.cellSize;
+        
+        ctx.drawImage(
+            layer.image,
+            srcX, srcY, srcW, srcH,
+            dstX, dstY, srcW, srcH
+        );
+    },
+    
+    render() {
         for (const frag of this.fragments) {
             const layer = LayeredRenderer.layers[frag.layerId];
             if (!layer || !layer.image) continue;
@@ -421,12 +511,11 @@ const FragmentSystem = {
             ctx.save();
             ctx.globalAlpha = frag.alpha;
             
-            const centerFx = frag.x + frag.width / 2;
-            const centerFy = frag.y + frag.height / 2;
+            const cx = frag.x + frag.width / 2;
+            const cy = frag.y + frag.height / 2;
             
-            ctx.translate(centerFx, centerFy);
+            ctx.translate(cx, cy);
             ctx.rotate(frag.rotation);
-            ctx.scale(frag.scale, frag.scale);
             
             ctx.drawImage(
                 layer.image,
@@ -622,7 +711,7 @@ function render() {
             const detachedCount = LayeredRenderer.getDetachedCount();
             const layerInfo = `Layers: ${LayeredRenderer.getLayerCount()} | Detached: ${detachedCount} | Order: ${gameState.layers.layerOrder.join(' > ')}`;
             ctx.fillText(layerInfo, centerX, centerY + maxHeight / 2 + 70);
-            ctx.fillText('Drag layer > 20px to detach | Release to reattach', centerX, centerY + maxHeight / 2 + 95);
+            ctx.fillText('Drag to carve pieces | Press R to restore | Press R to restore all', centerX, centerY + maxHeight / 2 + 95);
         }
     } else {
         ctx.fillStyle = '#fff';
@@ -678,6 +767,15 @@ function gameLoop(timestamp) {
 
 window.addEventListener('keydown', (e) => {
     gameState.keys[e.key] = true;
+    
+    if (e.key === 'r' || e.key === 'R') {
+        const draggingLayerId = LayeredRenderer.getDraggingLayer();
+        if (draggingLayerId) {
+            FragmentSystem.restoreLayer(draggingLayerId);
+        } else {
+            FragmentSystem.restoreAllLayers();
+        }
+    }
 });
 
 window.addEventListener('keyup', (e) => {
@@ -696,12 +794,30 @@ function handleInputStart(x, y) {
     const layerId = LayeredRenderer.hitTest(x, y);
     
     if (layerId && LayeredRenderer.getLayer(layerId)?.loaded) {
+        const layer = LayeredRenderer.getLayer(layerId);
+        
+        if (!layer.grid) {
+            FragmentSystem.initLayerGrid(layerId);
+        }
+        
         LayeredRenderer.startDrag(layerId, x, y);
         gameState.input.active = true;
         gameState.input.startX = x;
         gameState.input.startY = y;
         gameState.input.currentX = x;
         gameState.input.currentY = y;
+        
+        const gamePos = screenToGame(x, y);
+        const dims = LayeredRenderer.getScaledDimensions(layer);
+        const centerX = LayeredRenderer.centerX;
+        const centerY = LayeredRenderer.centerY;
+        const layerDrawX = centerX - dims.width / 2 + layer.x;
+        const layerDrawY = centerY - dims.height / 2 + layer.y;
+        
+        const carveRadius = 30;
+        FragmentSystem.carveArea(layerId, 
+            gamePos.x - carveRadius, gamePos.y - carveRadius,
+            gamePos.x + carveRadius, gamePos.y + carveRadius);
     } else {
         const pos = screenToGame(x, y);
         gameState.input.active = true;
@@ -716,7 +832,28 @@ function handleInputMove(x, y) {
     if (!gameState.input.active) return;
     
     if (gameState.layers.dragging) {
+        const prevGamePos = screenToGame(gameState.input.currentX, gameState.input.currentY);
+        const currentGamePos = screenToGame(x, y);
+        
         LayeredRenderer.updateDrag(x, y);
+        
+        const layerId = gameState.layers.dragging;
+        const layer = LayeredRenderer.getLayer(layerId);
+        
+        if (layer && !layer.destroyed) {
+            if (!layer.grid) {
+                FragmentSystem.initLayerGrid(layerId);
+            }
+            
+            const carveRadius = 25;
+            FragmentSystem.carveArea(layerId,
+                prevGamePos.x - carveRadius, prevGamePos.y - carveRadius,
+                currentGamePos.x + carveRadius, currentGamePos.y + carveRadius);
+        }
+        
+        if (LayeredRenderer.isLayerDestroyed(layerId)) {
+            gameState.layers.dragging = null;
+        }
     } else {
         const pos = screenToGame(x, y);
         gameState.input.currentX = pos.x;
