@@ -32,6 +32,13 @@ function resizeCanvas() {
 const gameState = {
     player: { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2, size: 30, color: '#e94560' },
     keys: {},
+    input: {
+        active: false,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0
+    },
     lastTime: 0,
     deltaTime: 0
 };
@@ -74,11 +81,29 @@ function render() {
     ctx.arc(gameState.player.x, gameState.player.y, gameState.player.size, 0, Math.PI * 2);
     ctx.fill();
     
+    if (gameState.input.active) {
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(gameState.input.currentX, gameState.input.currentY, 25, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        ctx.fillStyle = 'rgba(0, 255, 136, 0.3)';
+        ctx.beginPath();
+        ctx.arc(gameState.input.currentX, gameState.input.currentY, 25, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#00ff88';
+        ctx.beginPath();
+        ctx.arc(gameState.input.currentX, gameState.input.currentY, 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
     ctx.fillStyle = '#fff';
     ctx.font = '20px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('Arrow Keys / WASD to move', GAME_WIDTH / 2, 40);
-    ctx.fillText('Touch: drag to move', GAME_WIDTH / 2, 70);
+    ctx.fillText('Click & Drag / Touch & Drag to move', GAME_WIDTH / 2, 70);
 }
 
 function gameLoop(timestamp) {
@@ -103,40 +128,72 @@ window.addEventListener('keyup', (e) => {
     gameState.keys[e.key] = false;
 });
 
-let touchStartX = 0;
-let touchStartY = 0;
-let isTouching = false;
-
-canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
+function screenToGame(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
-    touchStartX = (touch.clientX - rect.left) / scale;
-    touchStartY = (touch.clientY - rect.top) / scale;
-    isTouching = true;
-});
+    return {
+        x: (clientX - rect.left) / scale,
+        y: (clientY - rect.top) / scale
+    };
+}
 
-canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if (!isTouching) return;
+function handleInputStart(x, y) {
+    const pos = screenToGame(x, y);
+    gameState.input.active = true;
+    gameState.input.startX = pos.x;
+    gameState.input.startY = pos.y;
+    gameState.input.currentX = pos.x;
+    gameState.input.currentY = pos.y;
+}
+
+function handleInputMove(x, y) {
+    if (!gameState.input.active) return;
     
-    const touch = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
-    const currentX = (touch.clientX - rect.left) / scale;
-    const currentY = (touch.clientY - rect.top) / scale;
+    const pos = screenToGame(x, y);
+    gameState.input.currentX = pos.x;
+    gameState.input.currentY = pos.y;
     
-    const dx = currentX - touchStartX;
-    const dy = currentY - touchStartY;
+    const dx = pos.x - gameState.input.startX;
+    const dy = pos.y - gameState.input.startY;
     
     gameState.player.x = Math.max(gameState.player.size, Math.min(GAME_WIDTH - gameState.player.size, gameState.player.x + dx));
     gameState.player.y = Math.max(gameState.player.size, Math.min(GAME_HEIGHT - gameState.player.size, gameState.player.y + dy));
     
-    touchStartX = currentX;
-    touchStartY = currentY;
+    gameState.input.startX = pos.x;
+    gameState.input.startY = pos.y;
+}
+
+function handleInputEnd() {
+    gameState.input.active = false;
+}
+
+canvas.addEventListener('mousedown', (e) => {
+    handleInputStart(e.clientX, e.clientY);
 });
 
-canvas.addEventListener('touchend', () => {
-    isTouching = false;
+canvas.addEventListener('mousemove', (e) => {
+    if (e.buttons > 0) {
+        handleInputMove(e.clientX, e.clientY);
+    }
+});
+
+canvas.addEventListener('mouseup', handleInputEnd);
+canvas.addEventListener('mouseleave', handleInputEnd);
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    handleInputStart(touch.clientX, touch.clientY);
+});
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    handleInputMove(touch.clientX, touch.clientY);
+});
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    handleInputEnd();
 });
 
 window.addEventListener('resize', resizeCanvas);
