@@ -755,8 +755,12 @@ function gameLoop(timestamp) {
         gameState.deltaTime = 0.016;
     }
     
-    update(gameState.deltaTime);
-    render();
+    if (currentMode === GameMode.MENU) {
+        FusionRenderer.render();
+    } else if (currentMode === GameMode.GAME || currentMode === GameMode.FUSION) {
+        update(gameState.deltaTime);
+        render();
+    }
     
     requestAnimationFrame(gameLoop);
 }
@@ -770,6 +774,16 @@ window.addEventListener('keydown', (e) => {
             FragmentSystem.restoreLayer(draggingLayerId);
         } else {
             FragmentSystem.restoreAllLayers();
+        }
+    }
+    
+    if (e.key === 'Escape') {
+        const overlay = document.getElementById('menuOverlay');
+        if (overlay.classList.contains('active')) {
+            overlay.classList.remove('active');
+            currentMode = GameMode.GAME;
+        } else {
+            MenuSystem.showMainMenu();
         }
     }
 });
@@ -904,6 +918,326 @@ canvas.addEventListener('touchend', (e) => {
 });
 
 window.addEventListener('resize', resizeCanvas);
+
+const GameMode = {
+    MENU: 'menu',
+    GAME: 'game',
+    FUSION: 'fusion'
+};
+
+let currentMode = GameMode.MENU;
+
+const MenuSystem = {
+    submissions: [],
+    currentEditing: null,
+    tempLayers: [],
+    
+    init() {
+        this.loadSubmissions();
+        this.showMainMenu();
+    },
+    
+    loadSubmissions() {
+        const saved = localStorage.getItem('breakaway_submissions');
+        if (saved) {
+            this.submissions = JSON.parse(saved);
+        }
+    },
+    
+    saveSubmissions() {
+        localStorage.setItem('breakaway_submissions', JSON.stringify(this.submissions));
+    },
+    
+    showMainMenu() {
+        currentMode = GameMode.MENU;
+        
+        const overlay = document.getElementById('menuOverlay');
+        const content = document.getElementById('menuContent');
+        
+        content.innerHTML = `
+            <h2>Breakaway Hero</h2>
+            <button id="btnPlay">Play Game</button>
+            <button id="btnFusion">Fusion Creator</button>
+            <button id="btnSubmissions">My Submissions</button>
+            <button class="close-btn" id="btnClose">Close Menu</button>
+        `;
+        
+        overlay.classList.add('active');
+        
+        document.getElementById('btnPlay').onclick = () => {
+            overlay.classList.remove('active');
+            currentMode = GameMode.GAME;
+        };
+        
+        document.getElementById('btnFusion').onclick = () => {
+            this.showFusionCreator();
+        };
+        
+        document.getElementById('btnSubmissions').onclick = () => {
+            this.showSubmissions();
+        };
+        
+        document.getElementById('btnClose').onclick = () => {
+            overlay.classList.remove('active');
+            currentMode = GameMode.GAME;
+        };
+    },
+    
+    showFusionCreator(editId = null) {
+        this.currentEditing = editId;
+        
+        let existingName = '';
+        let existingLayers = [];
+        
+        if (editId) {
+            const sub = this.submissions.find(s => s.id === editId);
+            if (sub) {
+                existingName = sub.name;
+                existingLayers = sub.layers || [];
+            }
+        }
+        
+        this.tempLayers = existingLayers.map((l, i) => ({
+            id: 'temp_' + Date.now() + '_' + i,
+            url: l.url,
+            name: l.name
+        }));
+        
+        const overlay = document.getElementById('menuOverlay');
+        const content = document.getElementById('menuContent');
+        
+        const layerItems = this.tempLayers.map((layer, index) => `
+            <div class="layer-item">
+                <span>${index + 1}. ${layer.name}</span>
+                <button onclick="MenuSystem.removeTempLayer(${index})">Remove</button>
+            </div>
+        `).join('');
+        
+        content.innerHTML = `
+            <h2>${editId ? 'Edit' : 'New'} Fusion</h2>
+            <label>Fusion Name</label>
+            <input type="text" id="fusionName" value="${existingName}" placeholder="Enter name...">
+            
+            <label>Layers (First = Base, Last = Top)</label>
+            <div class="layer-list" id="layerList">
+                ${layerItems || '<p style="color:#aaa;text-align:center;">No layers added yet</p>'}
+            </div>
+            
+            <button id="btnAddLayer">Add Image Layer</button>
+            <button id="btnAddBase">Set as Base Image</button>
+            
+            <button id="btnSaveFusion">Save Fusion</button>
+            <button class="close-btn" id="btnBack">Back to Menu</button>
+        `;
+        
+        overlay.classList.add('active');
+        
+        document.getElementById('btnAddLayer').onclick = () => {
+            this.addTempLayer(false);
+        };
+        
+        document.getElementById('btnAddBase').onclick = () => {
+            this.addTempLayer(true);
+        };
+        
+        document.getElementById('btnSaveFusion').onclick = () => {
+            this.saveFusion();
+        };
+        
+        document.getElementById('btnBack').onclick = () => {
+            this.showMainMenu();
+        };
+    },
+    
+    addTempLayer(asBase) {
+        const input = document.getElementById('fileInput');
+        input.onchange = (e) => {
+            const files = e.target.files;
+            if (files.length === 0) return;
+            
+            Array.from(files).forEach((file, idx) => {
+                const url = URL.createObjectURL(file);
+                const name = file.name.replace(/\.[^/.]+$/, '');
+                
+                if (asBase || this.tempLayers.length === 0) {
+                    this.tempLayers.unshift({
+                        id: 'temp_' + Date.now() + '_' + idx,
+                        url,
+                        name
+                    });
+                } else {
+                    this.tempLayers.push({
+                        id: 'temp_' + Date.now() + '_' + idx,
+                        url,
+                        name
+                    });
+                }
+            });
+            
+            this.refreshLayerList();
+            input.value = '';
+        };
+        input.click();
+    },
+    
+    removeTempLayer(index) {
+        if (this.tempLayers[index]) {
+            this.tempLayers.splice(index, 1);
+            this.refreshLayerList();
+        }
+    },
+    
+    refreshLayerList() {
+        const list = document.getElementById('layerList');
+        if (!list) return;
+        
+        const layerItems = this.tempLayers.map((layer, index) => `
+            <div class="layer-item">
+                <span>${index + 1}. ${layer.name}</span>
+                <button onclick="MenuSystem.removeTempLayer(${index})">Remove</button>
+            </div>
+        `).join('');
+        
+        list.innerHTML = layerItems || '<p style="color:#aaa;text-align:center;">No layers added yet</p>';
+    },
+    
+    saveFusion() {
+        const name = document.getElementById('fusionName').value.trim();
+        if (!name) {
+            alert('Please enter a name for your fusion');
+            return;
+        }
+        
+        if (this.tempLayers.length === 0) {
+            alert('Please add at least one image layer');
+            return;
+        }
+        
+        const fusion = {
+            id: this.currentEditing || 'fusion_' + Date.now(),
+            name,
+            layers: this.tempLayers.map(l => ({ url: l.url, name: l.name })),
+            createdAt: this.currentEditing ? 
+                this.submissions.find(s => s.id === this.currentEditing)?.createdAt : 
+                Date.now(),
+            updatedAt: Date.now()
+        };
+        
+        if (this.currentEditing) {
+            const idx = this.submissions.findIndex(s => s.id === this.currentEditing);
+            if (idx !== -1) {
+                this.submissions[idx] = fusion;
+            }
+        } else {
+            this.submissions.push(fusion);
+        }
+        
+        this.saveSubmissions();
+        this.showFusionCreator();
+    },
+    
+    showSubmissions() {
+        const overlay = document.getElementById('menuOverlay');
+        const content = document.getElementById('menuContent');
+        
+        if (this.submissions.length === 0) {
+            content.innerHTML = `
+                <h2>My Submissions</h2>
+                <p style="color:#aaa;text-align:center;margin:20px 0;">No submissions yet</p>
+                <button class="close-btn" id="btnBack">Back to Menu</button>
+            `;
+            
+            document.getElementById('btnBack').onclick = () => {
+                this.showMainMenu();
+            };
+        } else {
+            const items = this.submissions.map(sub => {
+                const date = new Date(sub.createdAt).toLocaleDateString();
+                return `
+                    <div class="submission-item">
+                        <span>${sub.name} (${sub.layers.length} layers)<br><small>${date}</small></span>
+                        <div class="buttons">
+                            <button onclick="MenuSystem.loadFusionToGame('${sub.id}')">Play</button>
+                            <button onclick="MenuSystem.editSubmission('${sub.id}')">Edit</button>
+                            <button onclick="MenuSystem.deleteSubmission('${sub.id}')">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            content.innerHTML = `
+                <h2>My Submissions</h2>
+                <div class="layer-list">${items}</div>
+                <button class="close-btn" id="btnBack">Back to Menu</button>
+            `;
+            
+            document.getElementById('btnBack').onclick = () => {
+                this.showMainMenu();
+            };
+        }
+        
+        overlay.classList.add('active');
+    },
+    
+    editSubmission(id) {
+        this.showFusionCreator(id);
+    },
+    
+    deleteSubmission(id) {
+        if (confirm('Delete this submission?')) {
+            this.submissions = this.submissions.filter(s => s.id !== id);
+            this.saveSubmissions();
+            this.showSubmissions();
+        }
+    },
+    
+    loadFusionToGame(fusionId) {
+        const fusion = this.submissions.find(s => s.id === fusionId);
+        if (!fusion) return;
+        
+        LayeredRenderer.clearAll();
+        
+        fusion.layers.forEach((layer, index) => {
+            LayeredRenderer.addLayer('fusion_' + index, layer.url, index + 1);
+        });
+        
+        const overlay = document.getElementById('menuOverlay');
+        overlay.classList.remove('active');
+        currentMode = GameMode.GAME;
+    }
+};
+
+const FusionRenderer = {
+    async load() {
+        const menuBtn = document.getElementById('btnMenu');
+        if (!menuBtn) {
+            const menuOverlay = document.getElementById('menuOverlay');
+            const content = document.getElementById('menuContent');
+            content.innerHTML += '<button id="btnMenu" style="margin-top:20px;">Main Menu</button>';
+            document.getElementById('btnMenu').onclick = () => {
+                MenuSystem.showMainMenu();
+            };
+        }
+    },
+    
+    render() {
+        if (currentMode === GameMode.MENU) {
+            ctx.fillStyle = '#16213e';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            
+            ctx.fillStyle = '#e94560';
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Breakaway Hero', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50);
+            
+            ctx.fillStyle = '#aaa';
+            ctx.font = '20px Arial';
+            ctx.fillText('Press any key to start', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20);
+        }
+    }
+};
+
+MenuSystem.init();
 
 resizeCanvas();
 requestAnimationFrame(gameLoop);

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Cross Platform Game</title>
+    <title>Breakaway Hero</title>
     <style>
         * {
             margin: 0;
@@ -20,6 +20,7 @@
             justify-content: center;
             align-items: center;
             touch-action: none;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
         canvas {
@@ -27,10 +28,152 @@
             background: #16213e;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
         }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        .menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .menu-overlay.active {
+            display: flex;
+        }
+        
+        .menu-content {
+            background: #16213e;
+            padding: 30px;
+            border-radius: 10px;
+            border: 2px solid #0f3460;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .menu-content h2 {
+            color: #e94560;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .menu-content button {
+            display: block;
+            width: 100%;
+            padding: 12px 20px;
+            margin: 10px 0;
+            background: #0f3460;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.2s;
+        }
+        
+        .menu-content button:hover {
+            background: #e94560;
+        }
+        
+        .menu-content input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: #0f3460;
+            color: #fff;
+            border: 1px solid #533483;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .menu-content label {
+            color: #aaa;
+            display: block;
+            margin-top: 15px;
+            margin-bottom: 5px;
+        }
+        
+        .layer-list {
+            background: #0f3460;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .layer-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            background: #16213e;
+            margin: 5px 0;
+            border-radius: 3px;
+        }
+        
+        .layer-item span {
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .layer-item button {
+            width: auto;
+            padding: 5px 10px;
+            margin: 0;
+            font-size: 12px;
+            background: #e94560;
+        }
+        
+        .submission-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #0f3460;
+            margin: 5px 0;
+            border-radius: 5px;
+        }
+        
+        .submission-item span {
+            color: #fff;
+            flex: 1;
+        }
+        
+        .submission-item .buttons {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .submission-item button {
+            width: auto;
+            padding: 5px 10px;
+            margin: 0;
+            font-size: 12px;
+        }
+        
+        .close-btn {
+            background: #533483 !important;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <div class="menu-overlay" id="menuOverlay">
+        <div class="menu-content" id="menuContent"></div>
+    </div>
     <script src="game.js"></script>
 </body>
 </html>
