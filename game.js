@@ -39,9 +39,92 @@ const gameState = {
         currentX: 0,
         currentY: 0
     },
+    imageLoader: {
+        characters: [],
+        currentIndex: 0,
+        loadedImages: {},
+        loading: false
+    },
     lastTime: 0,
     deltaTime: 0
 };
+
+const ImageLoader = {
+    characters: [
+        { id: 'char1', name: 'Warrior', url: 'images/char1.png' },
+        { id: 'char2', name: 'Mage', url: 'images/char2.png' },
+        { id: 'char3', name: 'Rogue', url: 'images/char3.png' },
+        { id: 'char4', name: 'Healer', url: 'images/char4.png' }
+    ],
+    
+    loadImage(id, url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                gameState.imageLoader.loadedImages[id] = img;
+                resolve(img);
+            };
+            img.onerror = () => {
+                console.warn(`Failed to load image: ${url}`);
+                resolve(null);
+            };
+            img.src = url;
+        });
+    },
+    
+    async loadCharacter(index) {
+        if (index < 0 || index >= this.characters.length) return null;
+        
+        gameState.imageLoader.loading = true;
+        gameState.imageLoader.currentIndex = index;
+        
+        const char = this.characters[index];
+        
+        if (gameState.imageLoader.loadedImages[char.id]) {
+            gameState.imageLoader.loading = false;
+            return gameState.imageLoader.loadedImages[char.id];
+        }
+        
+        return await this.loadImage(char.id, char.url);
+    },
+    
+    async loadAll() {
+        for (let i = 0; i < this.characters.length; i++) {
+            const char = this.characters[i];
+            if (!gameState.imageLoader.loadedImages[char.id]) {
+                await this.loadImage(char.id, char.url);
+            }
+        }
+    },
+    
+    next() {
+        const nextIndex = (gameState.imageLoader.currentIndex + 1) % this.characters.length;
+        return this.loadCharacter(nextIndex);
+    },
+    
+    previous() {
+        const prevIndex = (gameState.imageLoader.currentIndex - 1 + this.characters.length) % this.characters.length;
+        return this.loadCharacter(prevIndex);
+    },
+    
+    getCurrentCharacter() {
+        return this.characters[gameState.imageLoader.currentIndex];
+    },
+    
+    getCurrentImage() {
+        const char = this.getCurrentCharacter();
+        return char ? gameState.imageLoader.loadedImages[char.id] : null;
+    },
+    
+    setCharacters(characterList) {
+        this.characters = characterList;
+        gameState.imageLoader.loadedImages = {};
+        gameState.imageLoader.currentIndex = 0;
+    }
+};
+
+let lastNavTime = 0;
 
 function update(dt) {
     const speed = 300 * dt;
@@ -61,6 +144,17 @@ function update(dt) {
     
     gameState.player.x = Math.max(gameState.player.size, Math.min(GAME_WIDTH - gameState.player.size, gameState.player.x));
     gameState.player.y = Math.max(gameState.player.size, Math.min(GAME_HEIGHT - gameState.player.size, gameState.player.y));
+    
+    const now = performance.now();
+    if (now - lastNavTime > 200) {
+        if (gameState.keys['ArrowRight']) {
+            ImageLoader.next();
+            lastNavTime = now;
+        } else if (gameState.keys['ArrowLeft']) {
+            ImageLoader.previous();
+            lastNavTime = now;
+        }
+    }
 }
 
 function render() {
@@ -74,6 +168,49 @@ function render() {
                 ctx.fillRect(i * 80, j * 75, 80, 75);
             }
         }
+    }
+    
+    const charImage = ImageLoader.getCurrentImage();
+    if (charImage) {
+        const maxWidth = 300;
+        const maxHeight = 400;
+        let width = charImage.width;
+        let height = charImage.height;
+        
+        if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width *= ratio;
+            height *= ratio;
+        }
+        
+        const centerX = GAME_WIDTH / 2;
+        const centerY = GAME_HEIGHT / 2;
+        
+        ctx.drawImage(
+            charImage,
+            centerX - width / 2,
+            centerY - height / 2,
+            width,
+            height
+        );
+        
+        const char = ImageLoader.getCurrentCharacter();
+        if (char) {
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(char.name, centerX, centerY + height / 2 + 40);
+            
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#aaa';
+            ctx.fillText(`${gameState.imageLoader.currentIndex + 1} / ${ImageLoader.characters.length} (Arrow keys to navigate)`, centerX, centerY + height / 2 + 70);
+        }
+    } else {
+        ctx.fillStyle = '#fff';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('No character loaded', GAME_WIDTH / 2, GAME_HEIGHT / 2);
+        ctx.fillText('Add images to images/ folder', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30);
     }
     
     ctx.fillStyle = gameState.player.color;
