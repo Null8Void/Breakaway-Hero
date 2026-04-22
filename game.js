@@ -383,9 +383,14 @@ const SubjectSegmentation = {
             );
             
             let foregroundPixels = 0;
+            let foregroundInRed = 0;
+            let foregroundInAlpha = 0;
             for (let i = 0; i < binaryMask.data.length; i += 4) {
-                if (binaryMask.data[i + 3] > 128) foregroundPixels++;
+                if (binaryMask.data[i] > 128) foregroundInRed++;
+                if (binaryMask.data[i + 3] > 128) foregroundInAlpha++;
             }
+            foregroundPixels = foregroundInRed;
+            console.log('[Segmentation] Binary mask stats - Red channel:', foregroundInRed, 'Alpha channel:', foregroundInAlpha);
             
             if (foregroundPixels > 100) {
                 const outputData = maskCtx.createImageData(width, height);
@@ -406,6 +411,13 @@ const SubjectSegmentation = {
                 
                 this.applyFeathering(maskCanvas, this.featherRadius);
                 this.masks[layerId] = maskCanvas;
+                
+                const storedMask = this.masks[layerId];
+                if (storedMask) {
+                    const sCtx = storedMask.getContext('2d');
+                    const sPx = sCtx.getImageData(Math.floor(width/2), Math.floor(height/2), 1, 1).data;
+                    console.log('[Segmentation] STORED mask center pixel - R:', sPx[0], 'G:', sPx[1], 'B:', sPx[2], 'A:', sPx[3]);
+                }
                 console.log('[Segmentation] Mask generated, foreground pixels:', foregroundPixels);
             } else {
                 this.masks[layerId] = null;
