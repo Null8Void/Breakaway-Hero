@@ -624,23 +624,15 @@ const VoronoiShardSystem = {
         return inside;
     },
     
-    carveArea(layerId, startX, startY, endX, endY) {
+    carveAtPoint(layerId, pointX, pointY, brushRadius) {
         const layer = LayeredRenderer.layers[layerId];
-        if (!layer || !layer.image || !this.shards[layerId]) return;
+        if (!layer || !layer.image || !this.shards[layerId]) return false;
         
         const dims = LayeredRenderer.getScaledDimensions(layer);
         const centerX = LayeredRenderer.centerX;
         const centerY = LayeredRenderer.centerY;
-        const layerDrawX = centerX - dims.width / 2 + layer.x;
-        const layerDrawY = centerY - dims.height / 2 + layer.y;
-        
-        const carveMinX = Math.min(startX, endX);
-        const carveMinY = Math.min(startY, endY);
-        const carveMaxX = Math.max(startX, endX);
-        const carveMaxY = Math.max(startY, endY);
-        
-        const carveCenterX = (carveMinX + carveMaxX) / 2;
-        const carveCenterY = (carveMinY + carveMaxY) / 2;
+        const layerDrawX = centerX - dims.width / 2;
+        const layerDrawY = centerY - dims.height / 2;
         
         const layerShards = this.shards[layerId];
         let carved = false;
@@ -649,19 +641,13 @@ const VoronoiShardSystem = {
             const shard = layerShards.shards[i];
             if (shard.broken) continue;
             
-            const shardScreenX = layerDrawX + shard.bounds.minX;
-            const shardScreenY = layerDrawY + shard.bounds.minY;
-            
-            if (shardScreenX + shard.bounds.width < carveMinX || shardScreenX > carveMaxX ||
-                shardScreenY + shard.bounds.height < carveMinY || shardScreenY > carveMaxY) {
-                continue;
-            }
-            
             const shardCenterX = layerDrawX + shard.x;
             const shardCenterY = layerDrawY + shard.y;
             
-            if (shardCenterX >= carveMinX && shardCenterX <= carveMaxX &&
-                shardCenterY >= carveMinY && shardCenterY <= carveMaxY) {
+            const dx = Math.abs(pointX - shardCenterX);
+            const dy = Math.abs(pointY - shardCenterY);
+            
+            if (dx < brushRadius && dy < brushRadius) {
                 this.breakShard(layerId, shard, layerDrawX, layerDrawY, dims);
                 layerShards.brokenCount++;
                 carved = true;
@@ -1122,18 +1108,13 @@ function handleInputStart(x, y) {
         
         const gamePos = screenToGame(x, y);
         const dims = LayeredRenderer.getScaledDimensions(layer);
-        const layerDrawX = LayeredRenderer.centerX - dims.width / 2 + layer.x;
-        const layerDrawY = LayeredRenderer.centerY - dims.height / 2 + layer.y;
+        const layerDrawX = LayeredRenderer.centerX - dims.width / 2;
+        const layerDrawY = LayeredRenderer.centerY - dims.height / 2;
         const localX = gamePos.x - layerDrawX;
         const localY = gamePos.y - layerDrawY;
         
         if (!SubjectSegmentation.isPointInMask(layerId, localX, localY)) {
-            const pos = screenToGame(x, y);
-            gameState.input.active = true;
-            gameState.input.startX = pos.x;
-            gameState.input.startY = pos.y;
-            gameState.input.currentX = pos.x;
-            gameState.input.currentY = pos.y;
+            gameState.input.active = false;
             return;
         }
         
@@ -1141,24 +1122,10 @@ function handleInputStart(x, y) {
             FragmentSystem.initLayerShards(layerId);
         }
         
-        LayeredRenderer.startDrag(layerId, x, y);
         gameState.input.active = true;
-        gameState.input.startX = x;
-        gameState.input.startY = y;
-        gameState.input.currentX = x;
-        gameState.input.currentY = y;
+        gameState.layers.dragging = layerId;
         
-        const carveRadius = 30;
-        FragmentSystem.carveArea(layerId, 
-            gamePos.x - carveRadius, gamePos.y - carveRadius,
-            gamePos.x + carveRadius, gamePos.y + carveRadius);
-    } else {
-        const pos = screenToGame(x, y);
-        gameState.input.active = true;
-        gameState.input.startX = pos.x;
-        gameState.input.startY = pos.y;
-        gameState.input.currentX = pos.x;
-        gameState.input.currentY = pos.y;
+        FragmentSystem.carveAtPoint(layerId, gamePos.x, gamePos.y, 15);
     }
 }
 
@@ -1166,35 +1133,19 @@ function handleInputMove(x, y) {
     if (!gameState.input.active) return;
     
     if (gameState.layers.dragging) {
-        const prevGamePos = screenToGame(gameState.input.currentX, gameState.input.currentY);
         const currentGamePos = screenToGame(x, y);
-        
-        LayeredRenderer.updateDrag(x, y);
         
         const layerId = gameState.layers.dragging;
         const layer = LayeredRenderer.getLayer(layerId);
         
-        if (layer && !layer.destroyed) {
-            if (!FragmentSystem.shards || !FragmentSystem.shards[layerId]) {
-                FragmentSystem.initLayerShards(layerId);
-            }
-            
-            const carveRadius = 25;
-            FragmentSystem.carveArea(layerId,
-                prevGamePos.x - carveRadius, prevGamePos.y - carveRadius,
-                currentGamePos.x + carveRadius, currentGamePos.y + carveRadius);
+        if (layer && !layer.destroyed && FragmentSystem.shards && FragmentSystem.shards[layerId]) {
+            FragmentSystem.carveAtPoint(layerId, currentGamePos.x, currentGamePos.y, 12);
         }
-        
-        if (LayeredRenderer.isLayerDestroyed(layerId)) {
-            gameState.layers.dragging = null;
-        }
-    } else {
-        const pos = screenToGame(x, y);
-        gameState.input.currentX = pos.x;
-        gameState.input.currentY = pos.y;
-        gameState.input.startX = pos.x;
-        gameState.input.startY = pos.y;
     }
+    
+    const pos = screenToGame(x, y);
+    gameState.input.currentX = pos.x;
+    gameState.input.currentY = pos.y;
 }
 
 function handleInputEnd() {
