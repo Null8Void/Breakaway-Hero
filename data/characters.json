@@ -7,31 +7,66 @@
         "category": "fighter"
     },
     {
-        "id": "char_001",
-        "name": "Warrior",
-        "imagePath": "images/char1.png",
-        "tags": ["warrior", "combat", "melee"],
-        "category": "fighter"
-    },
-    {
-        "id": "char_002",
-        "name": "Mage",
-        "imagePath": "images/char2.png",
-        "tags": ["mage", "magic", "caster"],
+        "id": "kiraa_frost",
+        "name": "Kiraa Frost",
+        "imagePath": "images/Kiraa Frost.jpg",
+        "tags": ["ice", "mage", "frost"],
         "category": "spellcaster"
     },
     {
-        "id": "char_003",
-        "name": "Rogue",
-        "imagePath": "images/char3.png",
-        "tags": ["rogue", "stealth", "assassin"],
+        "id": "briar_vixen",
+        "name": "Briar Vixen",
+        "imagePath": "images/Briar Vixen.jpg",
+        "tags": ["nature", "beast", "druid"],
+        "category": "nature"
+    },
+    {
+        "id": "rika_bandit",
+        "name": "Rika Bandit",
+        "imagePath": "images/Rika Bandit.jpg",
+        "tags": ["thief", "rogue", "bandit"],
         "category": "scout"
     },
     {
-        "id": "char_004",
-        "name": "Healer",
-        "imagePath": "images/char4.png",
-        "tags": ["healer", "support", "cleric"],
-        "category": "support"
+        "id": "purrfect_mittenz",
+        "name": "Purrfect Mittenz",
+        "imagePath": "images/Purrfect Mittenz.jpg",
+        "tags": ["cat", "beast", "magical"],
+        "category": "companion"
+    },
+    {
+        "id": "angel",
+        "name": "Angel",
+        "imagePath": "images/Angel.jpg",
+        "tags": ["heaven", "light", "holy"],
+        "category": "divine"
+    },
+    {
+        "id": "stormie_brooke",
+        "name": "Stormie Brooke",
+        "imagePath": "images/Stormie Brooke.jpg",
+        "tags": ["storm", "lightning", "weather"],
+        "category": "elemental"
+    },
+    {
+        "id": "darlene_doom",
+        "name": "Darlene Doom",
+        "imagePath": "images/Darlene Doom.jpg",
+        "tags": ["dark", "shadow", "necromancer"],
+        "category": "dark"
+    },
+    {
+        "id": "chloe_esquire",
+        "name": "Chloe Esquire",
+        "imagePath": "images/Chloe Esquire.jpg",
+        "tags": ["knight", "paladin", "armor"],
+        "category": "fighter"
+    },
+    {
+        "id": "scarlett_foxx",
+        "name": "Scarlett Foxx",
+        "imagePath": "images/Scarlett Foxx.jpg",
+        "tags": ["fox", "fire", "beast"],
+        "category": "beast"
     }
 ]
