@@ -149,13 +149,13 @@ const LayeredRenderer = {
             if (!layer || !layer.image || layer.destroyed) continue;
             
             const dims = this.getScaledDimensions(layer);
+            const drawX = centerX - dims.width / 2 + layer.x;
+            const drawY = centerY - dims.height / 2 + layer.y;
+            
+            ctx.drawImage(layer.image, drawX, drawY, dims.width, dims.height);
             
             if (FragmentSystem.shards && FragmentSystem.shards[layerId]) {
                 FragmentSystem.renderLayerShards(layerId);
-            } else {
-                const drawX = centerX - dims.width / 2 + layer.x;
-                const drawY = centerY - dims.height / 2 + layer.y;
-                ctx.drawImage(layer.image, drawX, drawY, dims.width, dims.height);
             }
         }
     },
@@ -311,14 +311,14 @@ const LayeredRenderer = {
 
 const VoronoiShardSystem = {
     shards: {},
-    shardCount: 80,
+    shardCount: 300,
     maxFragments: 200,
     gravity: 500,
     fragments: [],
     
     generateVoronoiPoints(width, height, count) {
         const points = [];
-        const padding = 20;
+        const padding = 30;
         
         for (let i = 0; i < count; i++) {
             points.push({
@@ -331,27 +331,18 @@ const VoronoiShardSystem = {
     },
     
     generateCellPoints(centerX, centerY, allPoints, width, height) {
-        const neighbors = allPoints
-            .map((p, i) => ({ ...p, index: i }))
-            .filter(p => Math.abs(p.x - centerX) < width && Math.abs(p.y - centerY) < height)
-            .sort((a, b) => {
-                const distA = Math.hypot(a.x - centerX, a.y - centerY);
-                const distB = Math.hypot(b.x - centerX, b.y - centerY);
-                return distA - distB;
-            });
-        
-        const numVertices = 3 + Math.floor(Math.random() * 6);
-        const vertices = [];
+        const baseSize = Math.min(width, height) * 0.4;
+        const radius = baseSize * (0.5 + Math.random() * 0.5);
+        const numVertices = 3 + Math.floor(Math.random() * 5);
         const angleStep = (Math.PI * 2) / numVertices;
         
+        const vertices = [];
         for (let i = 0; i < numVertices; i++) {
-            const baseAngle = i * angleStep + Math.random() * angleStep * 0.5;
-            const radiusVariance = 0.6 + Math.random() * 0.4;
-            const radius = Math.min(width, height) * 0.5 * radiusVariance;
-            
+            const angle = i * angleStep + (Math.random() - 0.5) * angleStep * 0.6;
+            const r = radius * (0.5 + Math.random() * 0.5);
             vertices.push({
-                x: centerX + Math.cos(baseAngle) * radius,
-                y: centerY + Math.sin(baseAngle) * radius
+                x: centerX + Math.cos(angle) * r,
+                y: centerY + Math.sin(angle) * r
             });
         }
         
@@ -414,8 +405,6 @@ const VoronoiShardSystem = {
         const width = dims.width;
         const height = dims.height;
         
-        const points = this.generateVoronoiPoints(width, height, this.shardCount);
-        
         this.shards[layerId] = {
             width,
             height,
@@ -426,40 +415,50 @@ const VoronoiShardSystem = {
         
         const layerShards = this.shards[layerId];
         
-        points.forEach(point => {
-            const vertices = this.generateCellPoints(point.x, point.y, points, width, height);
-            
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            vertices.forEach(v => {
-                minX = Math.min(minX, v.x);
-                minY = Math.min(minY, v.y);
-                maxX = Math.max(maxX, v.x);
-                maxY = Math.max(maxY, v.y);
-            });
-            
-            layerShards.shards.push({
-                id: 'shard_' + Math.random().toString(36).substr(2, 9),
-                vertices,
-                x: (minX + maxX) / 2,
-                y: (minY + maxY) / 2,
-                width: maxX - minX,
-                height: maxY - minY,
-                broken: false
-            });
-        });
+        const cellSize = Math.max(30, Math.min(width, height) / 15);
+        const cols = Math.ceil(width / cellSize);
+        const rows = Math.ceil(height / cellSize);
         
-        const edgeShards = this.generateEdgeShards(width, height, points, points);
-        edgeShards.forEach(edge => {
-            layerShards.shards.push({
-                id: 'edge_' + Math.random().toString(36).substr(2, 9),
-                vertices: edge.vertices,
-                x: edge.x + edge.width / 2,
-                y: edge.y + edge.height / 2,
-                width: edge.width,
-                height: edge.height,
-                broken: false
-            });
-        });
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const cx = col * cellSize + cellSize / 2;
+                const cy = row * cellSize + cellSize / 2;
+                
+                const jitterX = (Math.random() - 0.5) * cellSize * 0.7;
+                const jitterY = (Math.random() - 0.5) * cellSize * 0.7;
+                
+                const vertices = [];
+                const numPoints = 4 + Math.floor(Math.random() * 3);
+                
+                for (let i = 0; i < numPoints; i++) {
+                    const angle = (i / numPoints) * Math.PI * 2 + Math.random() * 0.5;
+                    const radiusVariation = 0.6 + Math.random() * 0.4;
+                    const radius = cellSize * 0.6 * radiusVariation;
+                    vertices.push({
+                        x: cx + jitterX + Math.cos(angle) * radius,
+                        y: cy + jitterY + Math.sin(angle) * radius
+                    });
+                }
+                
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                vertices.forEach(v => {
+                    minX = Math.min(minX, v.x);
+                    minY = Math.min(minY, v.y);
+                    maxX = Math.max(maxX, v.x);
+                    maxY = Math.max(maxY, v.y);
+                });
+                
+                layerShards.shards.push({
+                    id: 'shard_' + row + '_' + col,
+                    vertices,
+                    x: (minX + maxX) / 2,
+                    y: (minY + maxY) / 2,
+                    width: maxX - minX,
+                    height: maxY - minY,
+                    broken: false
+                });
+            }
+        }
         
         layerShards.totalCount = layerShards.shards.length;
         
@@ -636,6 +635,11 @@ const VoronoiShardSystem = {
         
         const layerShards = this.shards[layerId];
         
+        const gradient = ctx.createLinearGradient(layerDrawX, layerDrawY, layerDrawX + dims.width, layerDrawY + dims.height);
+        gradient.addColorStop(0, 'rgba(40, 40, 50, 0.95)');
+        gradient.addColorStop(0.5, 'rgba(30, 30, 40, 0.95)');
+        gradient.addColorStop(1, 'rgba(20, 20, 30, 0.95)');
+        
         layerShards.shards.forEach(shard => {
             if (shard.broken) return;
             
@@ -647,31 +651,20 @@ const VoronoiShardSystem = {
                 ctx.lineTo(layerDrawX + shard.vertices[i].x, layerDrawY + shard.vertices[i].y);
             }
             ctx.closePath();
-            ctx.clip();
             
-            ctx.drawImage(layer.image, layerDrawX, layerDrawY, dims.width, dims.height);
+            ctx.fillStyle = gradient;
+            ctx.fill();
             
-            ctx.restore();
-            
-            ctx.save();
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(layerDrawX + shard.vertices[0].x, layerDrawY + shard.vertices[0].y);
-            for (let i = 1; i < shard.vertices.length; i++) {
-                ctx.lineTo(layerDrawX + shard.vertices[i].x, layerDrawY + shard.vertices[i].y);
-            }
-            ctx.closePath();
+            ctx.strokeStyle = 'rgba(80, 80, 100, 0.4)';
+            ctx.lineWidth = 1.5;
             ctx.stroke();
+            
             ctx.restore();
         });
     },
     
     render() {
         for (const frag of this.fragments) {
-            const layer = LayeredRenderer.layers[frag.layerId];
-            if (!layer || !layer.image) continue;
-            
             ctx.save();
             ctx.globalAlpha = frag.alpha;
             
@@ -681,9 +674,9 @@ const VoronoiShardSystem = {
             ctx.translate(cx, cy);
             ctx.rotate(frag.rotation);
             
-            const dims = LayeredRenderer.getScaledDimensions(layer);
-            const layerDrawX = LayeredRenderer.centerX - dims.width / 2;
-            const layerDrawY = LayeredRenderer.centerY - dims.height / 2;
+            const gradient = ctx.createLinearGradient(-frag.width/2, -frag.height/2, frag.width/2, frag.height/2);
+            gradient.addColorStop(0, 'rgba(40, 40, 50, 0.95)');
+            gradient.addColorStop(1, 'rgba(20, 20, 30, 0.95)');
             
             ctx.beginPath();
             ctx.moveTo(frag.vertices[0].x - frag.offsetX - frag.width/2, frag.vertices[0].y - frag.offsetY - frag.height/2);
@@ -691,9 +684,13 @@ const VoronoiShardSystem = {
                 ctx.lineTo(frag.vertices[i].x - frag.offsetX - frag.width/2, frag.vertices[i].y - frag.offsetY - frag.height/2);
             }
             ctx.closePath();
-            ctx.clip();
             
-            ctx.drawImage(layer.image, layerDrawX, layerDrawY, dims.width, dims.height);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(80, 80, 100, 0.5)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
             
             ctx.restore();
         }
