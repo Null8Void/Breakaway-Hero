@@ -426,10 +426,25 @@ const SubjectSegmentation = {
         if (!mask) return false;
         
         const px = Math.floor(x), py = Math.floor(y);
-        if (px < 0 || px >= mask.width || py < 0 || py >= mask.height) return false;
         
-        const pixel = mask.getContext('2d').getImageData(px, py, 1, 1).data;
-        return pixel[3] > 128;
+        if (this.debugMode) {
+            console.log('[Mask Check] x:', px, 'y:', py, 'mask size:', mask.width, 'x', mask.height);
+        }
+        
+        if (px < 0 || px >= mask.width || py < 0 || py >= mask.height) {
+            if (this.debugMode) console.log('[Mask Check] Out of bounds');
+            return false;
+        }
+        
+        try {
+            const pixel = mask.getContext('2d').getImageData(px, py, 1, 1).data;
+            const result = pixel[3] > 128;
+            if (this.debugMode) console.log('[Mask Check] Result:', result, 'alpha:', pixel[3]);
+            return result;
+        } catch (e) {
+            if (this.debugMode) console.log('[Mask Check] Error:', e.message);
+            return false;
+        }
     },
     
     clearMask(layerId) { delete this.masks[layerId]; },
@@ -547,6 +562,13 @@ const VoronoiShardSystem = {
         
         const mask = SubjectSegmentation.getMask(layerId);
         console.log('[ShardSystem] Layer:', layerId, 'Mask:', mask ? 'exists' : 'NULL', 'Dims:', width, 'x', height);
+        
+        if (mask) {
+            const testX = Math.floor(width / 2);
+            const testY = Math.floor(height / 2);
+            const testPixel = mask.getContext('2d').getImageData(testX, testY, 1, 1).data;
+            console.log('[ShardSystem] Test pixel at center:', testX, testY, 'alpha:', testPixel[3]);
+        }
         
         if (!mask) {
             console.warn('[ShardSystem] No mask available - generating shards WITHOUT mask restriction');
