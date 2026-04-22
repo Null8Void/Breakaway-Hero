@@ -313,52 +313,9 @@ const LayeredRenderer = {
 };
 
 const SubjectSegmentation = {
-    segmenter: null,
     masks: {},
-    isReady: false,
-    isLoading: false,
-    debugMode: false,
-    confidenceThreshold: 0.5,
-    featherRadius: 10,
-    
-    async init() {
-        if (this.segmenter) return;
-        if (this.isLoading) {
-            while (this.isLoading) {
-                await new Promise(r => setTimeout(r, 100));
-            }
-            return;
-        }
-        this.isLoading = true;
-        
-        try {
-            await tf.ready();
-            await tf.setBackend('webgl');
-            this.segmenter = await bodySegmentation.createSegmenter(
-                bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation,
-                { runtime: 'tfjs' }
-            );
-            this.isReady = true;
-            console.log('[Segmentation] Model ready, backend:', tf.getBackend());
-        } catch (err) {
-            console.error('[Segmentation] Model load failed:', err.message || err);
-            this.isReady = false;
-        }
-        this.isLoading = false;
-    },
-    
-    async generateMask(layerId, imageElement, width, height) {
-        return null;
-    },
-    
-    applyFeathering(canvas, radius) {
-        // Disabled - canvas filter can cause TensorFlow errors
-        // The mask works fine without feathering
-    },
-    
-    getMask(layerId) { return this.masks[layerId] || null; },
-    
-    clearMask(layerId) { delete this.masks[layerId]; },
+    getMask() { return null; },
+    clearMask() {},
     clearAll() { this.masks = {}; }
 };
 
@@ -1045,11 +1002,6 @@ function handleInputStart(x, y) {
         const localX = gamePos.x - layerDrawX;
         const localY = gamePos.y - layerDrawY;
         
-        if (!SubjectSegmentation.isPointInMask(layerId, localX, localY)) {
-            gameState.input.active = false;
-            return;
-        }
-        
         if (!FragmentSystem.shards || !FragmentSystem.shards[layerId]) {
             FragmentSystem.initLayerShards(layerId);
         }
@@ -1628,20 +1580,18 @@ const CharacterLoader = {
         
         LayeredRenderer.addLayer('character_base', imageUrl, 1);
         
-        setTimeout(async () => {
+        setTimeout(() => {
             let retries = 0;
-            const trySegment = async () => {
+            const initShards = () => {
                 const layer = LayeredRenderer.getLayer('character_base');
                 if (layer && layer.loaded && layer.image && layer.image.complete && layer.image.naturalWidth > 0) {
-                    const dims = LayeredRenderer.getScaledDimensions(layer);
-                    await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
                     FragmentSystem.initLayerShards('character_base');
                 } else if (retries < 10) {
                     retries++;
-                    setTimeout(trySegment, 200);
+                    setTimeout(initShards, 200);
                 }
             };
-            trySegment();
+            initShards();
         }, 200);
     },
     
@@ -1654,27 +1604,24 @@ const CharacterLoader = {
         
         LayeredRenderer.addLayer('character_base', url, 1);
         
-        setTimeout(async () => {
+        setTimeout(() => {
             let retries = 0;
-            const trySegment = async () => {
+            const initShards = () => {
                 const layer = LayeredRenderer.getLayer('character_base');
                 if (layer && layer.loaded && layer.image && layer.image.complete && layer.image.naturalWidth > 0) {
-                    const dims = LayeredRenderer.getScaledDimensions(layer);
-                    await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
                     FragmentSystem.initLayerShards('character_base');
                 } else if (retries < 10) {
                     retries++;
-                    setTimeout(trySegment, 200);
+                    setTimeout(initShards, 200);
                 }
             };
-            trySegment();
+            initShards();
         }, 200);
     },
     
     clearAll() {
         FragmentSystem.clear();
         FragmentSystem.shards = {};
-        SubjectSegmentation.clearMask('character_base');
         LayeredRenderer.clearAll();
         this.currentCharacter = null;
     },
@@ -1692,56 +1639,22 @@ const CharacterLoader = {
 resizeCanvas();
 requestAnimationFrame(gameLoop);
 
-window.onerror = function(message, source, lineno, colno, error) {
-    console.error("[Global Error]", message, "at line", lineno);
-    return false;
-};
-
 console.log("[Init] Starting...");
-try {
-    console.log("[Init] CharacterLoader:", typeof CharacterLoader);
-    console.log("[Init] LayeredRenderer:", typeof LayeredRenderer);
-    console.log("[Init] SubjectSegmentation:", typeof SubjectSegmentation);
-} catch (e) {
-    console.error("[Init] Error:", e.message);
-}
-console.log("[Init] LayeredRenderer defined:", typeof LayeredRenderer !== 'undefined');
-console.log("[Init] SubjectSegmentation defined:", typeof SubjectSegmentation !== 'undefined');
+console.log("[Init] CharacterLoader:", typeof CharacterLoader);
+console.log("[Init] LayeredRenderer:", typeof LayeredRenderer);
+console.log("[Init] FragmentSystem:", typeof FragmentSystem);
 
 document.getElementById('menuOverlay')?.classList.remove('active');
 
-requestAnimationFrame(() => {
-    console.log("[Init] First frame");
-    console.log("[Init] CharacterLoader type:", typeof CharacterLoader);
-    if (typeof CharacterLoader === 'undefined') {
-        console.error("[Init] CharacterLoader is MISSING!");
-    }
-});
-
 setTimeout(() => {
-    console.log("[Init] After 1s - CharacterLoader:", typeof CharacterLoader);
-    console.log("[Init] After 1s - currentMode:", currentMode);
-}, 1000);
-
-const tfReady = setInterval(() => {
-    if (typeof bodySegmentation !== 'undefined') {
-        clearInterval(tfReady);
-        console.log('[TensorFlow] Libraries loaded');
-        CharacterManager.load().catch(() => {});
-    }
-}, 100);
-
-setTimeout(() => {
-    clearInterval(tfReady);
     CharacterManager.load().catch(() => {});
-    console.log('[Segmentation] Ready:', SubjectSegmentation.isReady);
-}, 2000);
+}, 500);
 
 setTimeout(() => {
     const chars = CharacterManager.getAll();
     if (chars && chars.length > 0) {
         CharacterLoader.load(chars[0].name, chars[0].url);
     }
-}, 2500);
+}, 1000);
 
 console.log("[GAME] Initialization complete");
