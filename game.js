@@ -420,18 +420,8 @@ const SubjectSegmentation = {
     },
     
     applyFeathering(canvas, radius) {
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width, h = canvas.height;
-        
-        const temp = document.createElement('canvas');
-        temp.width = w; temp.height = h;
-        const tCtx = temp.getContext('2d');
-        tCtx.filter = `blur(${radius}px)`;
-        tCtx.drawImage(canvas, 0, 0);
-        
-        ctx.globalAlpha = 0.4;
-        ctx.drawImage(temp, 0, 0);
-        ctx.globalAlpha = 1;
+        // Disabled - canvas filter can cause TensorFlow errors
+        // The mask works fine without feathering
     },
     
     getMask(layerId) { return this.masks[layerId] || null; },
