@@ -2,7 +2,7 @@
     {
         "id": "ashe_ulfgarde",
         "name": "Ashe Ulfgarde",
-        "imagePath": "images/Ashe Ulfgarde.png",
+        "imagePath": "images/Ashe Ulfgarde.jpg",
         "tags": ["archer", "ranger", "ice"],
         "category": "fighter"
     },
