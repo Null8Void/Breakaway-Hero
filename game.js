@@ -348,92 +348,7 @@ const SubjectSegmentation = {
     },
     
     async generateMask(layerId, imageElement, width, height) {
-        if (this.debugMode) console.log('[Segmentation] Generating mask for', layerId);
-        
-        if (!imageElement || !imageElement.complete || !imageElement.naturalWidth || !imageElement.naturalHeight) {
-            if (this.debugMode) console.log('[Segmentation] Image not ready');
-            return null;
-        }
-        
-        try {
-            if (!this.isReady) await this.init();
-            if (!this.segmenter) {
-                if (this.debugMode) console.log('[Segmentation] No segmenter');
-                return null;
-            }
-            
-            const maskCanvas = document.createElement('canvas');
-            maskCanvas.width = width;
-            maskCanvas.height = height;
-            const maskCtx = maskCanvas.getContext('2d');
-            
-            const segmentations = await this.segmenter.segmentPeople(imageElement);
-            
-            if (!segmentations || segmentations.length === 0) {
-                if (this.debugMode) console.log('[Segmentation] No people detected');
-                this.masks[layerId] = null;
-                return null;
-            }
-            
-            const binaryMask = await bodySegmentation.toBinaryMask(segmentations, 
-                { r: 255, g: 255, b: 255, a: 255 },
-                { r: 0, g: 0, b: 0, a: 0 },
-                false,
-                this.confidenceThreshold
-            );
-            
-            let foregroundPixels = 0;
-            let foregroundInRed = 0;
-            let foregroundInAlpha = 0;
-            for (let i = 0; i < binaryMask.data.length; i += 4) {
-                if (binaryMask.data[i] > 128) foregroundInRed++;
-                if (binaryMask.data[i + 3] > 128) foregroundInAlpha++;
-            }
-            foregroundPixels = foregroundInRed;
-            console.log('[Segmentation] Binary mask stats - Red channel:', foregroundInRed, 'Alpha channel:', foregroundInAlpha);
-            
-            if (foregroundPixels > 100) {
-                const w = Math.floor(width);
-                const h = Math.floor(height);
-                const outputData = maskCtx.createImageData(w, h);
-                for (let i = 0; i < binaryMask.data.length; i += 4) {
-                    const isForeground = binaryMask.data[i] > 128;
-                    outputData.data[i] = 255;
-                    outputData.data[i + 1] = 255;
-                    outputData.data[i + 2] = 255;
-                    outputData.data[i + 3] = isForeground ? 255 : 0;
-                }
-                maskCtx.putImageData(outputData, 0, 0);
-                
-                const centerX = Math.floor(w/2);
-                const centerY = Math.floor(h/2);
-                const centerIdx = centerY * w * 4 + centerX * 4;
-                const testPxR = outputData.data[centerIdx];
-                const testPxA = outputData.data[centerIdx + 3];
-                console.log('[Segmentation] Mask dims:', w, 'x', h, 'center idx:', centerIdx);
-                console.log('[Segmentation] Output mask center R:', testPxR, 'A:', testPxA);
-                console.log('[Segmentation] Binary mask center R:', binaryMask.data[centerIdx], 'A:', binaryMask.data[centerIdx + 3]);
-                
-                this.applyFeathering(maskCanvas, this.featherRadius);
-                this.masks[layerId] = maskCanvas;
-                
-                const storedMask = this.masks[layerId];
-                if (storedMask) {
-                    const sCtx = storedMask.getContext('2d');
-                    const sPx = sCtx.getImageData(Math.floor(w/2), Math.floor(h/2), 1, 1).data;
-                    console.log('[Segmentation] STORED mask center - R:', sPx[0], 'A:', sPx[3]);
-                }
-                console.log('[Segmentation] Mask generated, foreground pixels:', foregroundPixels);
-            } else {
-                this.masks[layerId] = null;
-                console.log('[Segmentation] No foreground detected, pixels:', foregroundPixels);
-            }
-        } catch (err) {
-            console.error('[Segmentation] Error:', err.message || err);
-            this.masks[layerId] = null;
-        }
-        
-        return this.masks[layerId];
+        return null;
     },
     
     applyFeathering(canvas, radius) {
@@ -443,40 +358,8 @@ const SubjectSegmentation = {
     
     getMask(layerId) { return this.masks[layerId] || null; },
     
-    isPointInMask(layerId, x, y) {
-        const mask = this.masks[layerId];
-        if (!mask) return false;
-        
-        const px = Math.floor(x), py = Math.floor(y);
-        
-        if (this.debugMode) {
-            console.log('[Mask Check] x:', px, 'y:', py, 'mask size:', mask.width, 'x', mask.height);
-        }
-        
-        if (px < 0 || px >= mask.width || py < 0 || py >= mask.height) {
-            if (this.debugMode) console.log('[Mask Check] Out of bounds');
-            return false;
-        }
-        
-        try {
-            const pixel = mask.getContext('2d').getImageData(px, py, 1, 1).data;
-            const result = pixel[3] > 128;
-            if (this.debugMode) console.log('[Mask Check] Result:', result, 'alpha:', pixel[3]);
-            return result;
-        } catch (e) {
-            if (this.debugMode) console.log('[Mask Check] Error:', e.message);
-            return false;
-        }
-    },
-    
     clearMask(layerId) { delete this.masks[layerId]; },
-    clearAll() { this.masks = {}; },
-    
-    toggleDebug() {
-        this.debugMode = !this.debugMode;
-        console.log('[Segmentation] Debug mode:', this.debugMode);
-        return this.debugMode;
-    }
+    clearAll() { this.masks = {}; }
 };
 
 const VoronoiShardSystem = {
@@ -582,26 +465,6 @@ const VoronoiShardSystem = {
         this.shards[layerId] = { width, height, shards: [], brokenCount: 0, totalCount: 0 };
         const layerShards = this.shards[layerId];
         
-        const mask = SubjectSegmentation.getMask(layerId);
-        console.log('[ShardSystem] Layer:', layerId, 'Mask:', mask ? 'exists' : 'NULL', 'Dims:', width, 'x', height);
-        
-        if (mask) {
-            const testX = Math.floor(width / 2);
-            const testY = Math.floor(height / 2);
-            let testPixel;
-            try {
-                const maskCtx = mask.getContext('2d');
-                testPixel = maskCtx.getImageData(testX, testY, 1, 1).data;
-                console.log('[ShardSystem] Test pixel at center:', testX, testY, 'alpha:', testPixel[3], 'r:', testPixel[0]);
-            } catch (e) {
-                console.log('[ShardSystem] Test pixel ERROR:', e.message);
-            }
-        }
-        
-        if (!mask) {
-            console.warn('[ShardSystem] No mask available - generating shards WITHOUT mask restriction');
-        }
-        
         const area = width * height;
         const cellArea = area / desiredCount;
         const cellSize = Math.sqrt(cellArea);
@@ -616,12 +479,6 @@ const VoronoiShardSystem = {
             for (let col = 0; col < cols; col++) {
                 const cx = col * actualCellW + actualCellW / 2;
                 const cy = row * actualCellH + actualCellH / 2;
-                
-                const inMask = SubjectSegmentation.isPointInMask(layerId, cx, cy);
-                if (row === 0 && col < 3) {
-                    console.log('[ShardSystem] Point', cx.toFixed(1), cy.toFixed(1), 'inMask:', inMask);
-                }
-                if (!inMask) continue;
                 
                 generated++;
                 
