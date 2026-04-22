@@ -1201,6 +1201,7 @@ const MenuSystem = {
         content.innerHTML = `
             <h2>Breakaway Hero</h2>
             <button id="btnPlay">Play Game</button>
+            <button id="btnCharacters">Characters</button>
             <button id="btnFusion">Fusion Creator</button>
             <button id="btnSubmissions">My Submissions</button>
             <button class="close-btn" id="btnClose">Close Menu</button>
@@ -1211,6 +1212,10 @@ const MenuSystem = {
         document.getElementById('btnPlay').onclick = () => {
             overlay.classList.remove('active');
             currentMode = GameMode.GAME;
+        };
+        
+        document.getElementById('btnCharacters').onclick = () => {
+            this.showCharacters();
         };
         
         document.getElementById('btnFusion').onclick = () => {
@@ -1225,6 +1230,65 @@ const MenuSystem = {
             overlay.classList.remove('active');
             currentMode = GameMode.GAME;
         };
+    },
+    
+    showCharacters() {
+        const overlay = document.getElementById('menuOverlay');
+        const content = document.getElementById('menuContent');
+        const characters = CharacterManager.getAll();
+        
+        if (characters.length === 0) {
+            content.innerHTML = `
+                <h2>Characters</h2>
+                <p style="color:#aaa;text-align:center;margin:20px 0;">No characters found</p>
+                <button class="close-btn" id="btnBack">Back to Menu</button>
+            `;
+            
+            document.getElementById('btnBack').onclick = () => {
+                this.showMainMenu();
+            };
+            return;
+        }
+        
+        let charItems = characters.map((char, index) => `
+            <div class="layer-item">
+                <span>${index + 1}. ${char.name}</span>
+                <button onclick="MenuSystem.selectCharacter('${char.id}')">Select</button>
+            </div>
+        `).join('');
+        
+        content.innerHTML = `
+            <h2>Select Character</h2>
+            <div class="layer-list" style="max-height:250px;">${charItems}</div>
+            <div class="character-nav">
+                <button id="btnPrevChar" style="flex:1;">Previous</button>
+                <button id="btnNextChar" style="flex:1;">Next</button>
+            </div>
+            <button class="close-btn" id="btnBack">Back to Menu</button>
+        `;
+        
+        document.getElementById('btnPrevChar').onclick = () => {
+            CharacterLoader.previousCharacter();
+        };
+        
+        document.getElementById('btnNextChar').onclick = () => {
+            CharacterLoader.nextCharacter();
+        };
+        
+        document.getElementById('btnBack').onclick = () => {
+            this.showMainMenu();
+        };
+    },
+    
+    selectCharacter(id) {
+        const overlay = document.getElementById('menuOverlay');
+        const char = CharacterManager.getById(id);
+        
+        if (char) {
+            CharacterLoader.load(char.name, char.imagePath);
+            overlay.classList.remove('active');
+            currentMode = GameMode.GAME;
+        }
     },
     
     showFusionCreator(editId = null) {
