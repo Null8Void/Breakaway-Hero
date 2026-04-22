@@ -566,8 +566,14 @@ const VoronoiShardSystem = {
         if (mask) {
             const testX = Math.floor(width / 2);
             const testY = Math.floor(height / 2);
-            const testPixel = mask.getContext('2d').getImageData(testX, testY, 1, 1).data;
-            console.log('[ShardSystem] Test pixel at center:', testX, testY, 'alpha:', testPixel[3]);
+            let testPixel;
+            try {
+                const maskCtx = mask.getContext('2d');
+                testPixel = maskCtx.getImageData(testX, testY, 1, 1).data;
+                console.log('[ShardSystem] Test pixel at center:', testX, testY, 'alpha:', testPixel[3]);
+            } catch (e) {
+                console.log('[ShardSystem] Test pixel ERROR:', e.message);
+            }
         }
         
         if (!mask) {
@@ -589,7 +595,11 @@ const VoronoiShardSystem = {
                 const cx = col * actualCellW + actualCellW / 2;
                 const cy = row * actualCellH + actualCellH / 2;
                 
-                if (!SubjectSegmentation.isPointInMask(layerId, cx, cy)) continue;
+                const inMask = SubjectSegmentation.isPointInMask(layerId, cx, cy);
+                if (row === 0 && col < 3) {
+                    console.log('[ShardSystem] Point', cx.toFixed(1), cy.toFixed(1), 'inMask:', inMask);
+                }
+                if (!inMask) continue;
                 
                 generated++;
                 
