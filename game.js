@@ -30,7 +30,6 @@ function resizeCanvas() {
 }
 
 const gameState = {
-    player: { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2, size: 30, color: '#e94560' },
     keys: {},
     input: {
         active: false,
@@ -971,30 +970,12 @@ const ImageLoader = {
 let lastNavTime = 0;
 
 function update(dt) {
-    const speed = 300 * dt;
-    
-    if (gameState.keys['ArrowUp'] || gameState.keys['w']) {
-        gameState.player.y -= speed;
-    }
-    if (gameState.keys['ArrowDown'] || gameState.keys['s']) {
-        gameState.player.y += speed;
-    }
-    if (gameState.keys['ArrowLeft'] || gameState.keys['a']) {
-        gameState.player.x -= speed;
-    }
-    if (gameState.keys['ArrowRight'] || gameState.keys['d']) {
-        gameState.player.x += speed;
-    }
-    
-    gameState.player.x = Math.max(gameState.player.size, Math.min(GAME_WIDTH - gameState.player.size, gameState.player.x));
-    gameState.player.y = Math.max(gameState.player.size, Math.min(GAME_HEIGHT - gameState.player.size, gameState.player.y));
-    
     const now = performance.now();
     if (now - lastNavTime > 200) {
-        if (gameState.keys['ArrowRight']) {
+        if (gameState.keys['ArrowRight'] || gameState.keys['d']) {
             ImageLoader.next();
             lastNavTime = now;
-        } else if (gameState.keys['ArrowLeft']) {
+        } else if (gameState.keys['ArrowLeft'] || gameState.keys['a']) {
             ImageLoader.previous();
             lastNavTime = now;
         }
@@ -1075,11 +1056,6 @@ function render() {
         ctx.fillText('No layers loaded', centerX, centerY);
         ctx.fillText('Use LayeredRenderer.addLayer()', centerX, centerY + 30);
     }
-    
-    ctx.fillStyle = gameState.player.color;
-    ctx.beginPath();
-    ctx.arc(gameState.player.x, gameState.player.y, gameState.player.size, 0, Math.PI * 2);
-    ctx.fill();
     
     if (gameState.input.active) {
         ctx.strokeStyle = '#00ff88';
@@ -1258,13 +1234,6 @@ function handleInputMove(x, y) {
         const pos = screenToGame(x, y);
         gameState.input.currentX = pos.x;
         gameState.input.currentY = pos.y;
-        
-        const dx = pos.x - gameState.input.startX;
-        const dy = pos.y - gameState.input.startY;
-        
-        gameState.player.x = Math.max(gameState.player.size, Math.min(GAME_WIDTH - gameState.player.size, gameState.player.x + dx));
-        gameState.player.y = Math.max(gameState.player.size, Math.min(GAME_HEIGHT - gameState.player.size, gameState.player.y + dy));
-        
         gameState.input.startX = pos.x;
         gameState.input.startY = pos.y;
     }
