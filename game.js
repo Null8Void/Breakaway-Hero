@@ -153,6 +153,10 @@ const LayeredRenderer = {
     },
     
     renderLayers(centerX, centerY) {
+        if (gameState.layers.layerOrder.length === 0) {
+            if (FragmentSystem.debugMode) console.log('[Render] No layers in order');
+        }
+        
         for (const layerId of gameState.layers.layerOrder) {
             const layer = this.layers[layerId];
             if (!layer || !layer.image || layer.destroyed) continue;
@@ -385,8 +389,10 @@ const SubjectSegmentation = {
                 maskCtx.putImageData(binaryMask, 0, 0);
                 this.applyFeathering(maskCanvas, this.featherRadius);
                 this.masks[layerId] = maskCanvas;
+                console.log('[Segmentation] Mask generated, foreground pixels:', foregroundPixels);
             } else {
                 this.masks[layerId] = null;
+                console.log('[Segmentation] No foreground detected, pixels:', foregroundPixels);
             }
         } catch (err) {
             console.error('[Segmentation] Error:', err.message || err);
@@ -524,7 +530,10 @@ const VoronoiShardSystem = {
     
     initLayerShards(layerId, targetCount) {
         const layer = LayeredRenderer.layers[layerId];
-        if (!layer) return;
+        if (!layer) {
+            console.log('[ShardSystem] No layer found for', layerId);
+            return;
+        }
         
         const dims = LayeredRenderer.getScaledDimensions(layer);
         const width = dims.width;
@@ -535,6 +544,11 @@ const VoronoiShardSystem = {
         const layerShards = this.shards[layerId];
         
         const mask = SubjectSegmentation.getMask(layerId);
+        console.log('[ShardSystem] Layer:', layerId, 'Mask:', mask ? 'exists' : 'NULL', 'Dims:', width, 'x', height);
+        
+        if (!mask) {
+            console.warn('[ShardSystem] No mask available - generating shards WITHOUT mask restriction');
+        }
         
         const area = width * height;
         const cellArea = area / desiredCount;
@@ -594,10 +608,9 @@ const VoronoiShardSystem = {
         }
         
         layerShards.totalCount = layerShards.shards.length;
-        
-        if (SubjectSegmentation.debugMode) {
-            console.log('[ShardSystem] Generated:', generated, 'shards');
-            if (generated === 0) console.log('[ShardSystem] WARNING: No shards in mask!');
+        console.log('[ShardSystem] Generated:', generated, 'shards for', layerId);
+        if (generated === 0) {
+            console.warn('[ShardSystem] WARNING: No shards generated!');
         }
         
         const hitTestCache = {};
