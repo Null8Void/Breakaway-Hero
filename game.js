@@ -397,13 +397,15 @@ const VoronoiShardSystem = {
         return edgeShards;
     },
     
-    initLayerShards(layerId) {
+    initLayerShards(layerId, targetCount) {
         const layer = LayeredRenderer.layers[layerId];
         if (!layer) return;
         
         const dims = LayeredRenderer.getScaledDimensions(layer);
         const width = dims.width;
         const height = dims.height;
+        
+        const desiredCount = targetCount || 250;
         
         this.shards[layerId] = {
             width,
@@ -415,28 +417,36 @@ const VoronoiShardSystem = {
         
         const layerShards = this.shards[layerId];
         
-        const cellSize = Math.max(30, Math.min(width, height) / 15);
-        const cols = Math.ceil(width / cellSize);
-        const rows = Math.ceil(height / cellSize);
+        const area = width * height;
+        const cellArea = area / desiredCount;
+        const cellSize = Math.sqrt(cellArea);
+        
+        const cols = Math.max(10, Math.ceil(width / cellSize));
+        const rows = Math.max(8, Math.ceil(height / cellSize));
+        
+        const actualCellW = width / cols;
+        const actualCellH = height / rows;
         
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
-                const cx = col * cellSize + cellSize / 2;
-                const cy = row * cellSize + cellSize / 2;
+                const cx = col * actualCellW + actualCellW / 2;
+                const cy = row * actualCellH + actualCellH / 2;
                 
-                const jitterX = (Math.random() - 0.5) * cellSize * 0.7;
-                const jitterY = (Math.random() - 0.5) * cellSize * 0.7;
+                const jitterX = (Math.random() - 0.5) * actualCellW * 0.5;
+                const jitterY = (Math.random() - 0.5) * actualCellH * 0.5;
                 
                 const vertices = [];
-                const numPoints = 4 + Math.floor(Math.random() * 3);
+                const numPoints = 4 + Math.floor(Math.random() * 4);
                 
                 for (let i = 0; i < numPoints; i++) {
-                    const angle = (i / numPoints) * Math.PI * 2 + Math.random() * 0.5;
-                    const radiusVariation = 0.6 + Math.random() * 0.4;
-                    const radius = cellSize * 0.6 * radiusVariation;
+                    const angle = (i / numPoints) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+                    const radiusVar = 0.4 + Math.random() * 0.3;
+                    const radiusX = actualCellW * radiusVar;
+                    const radiusY = actualCellH * radiusVar;
+                    
                     vertices.push({
-                        x: cx + jitterX + Math.cos(angle) * radius,
-                        y: cy + jitterY + Math.sin(angle) * radius
+                        x: cx + jitterX + Math.cos(angle) * radiusX,
+                        y: cy + jitterY + Math.sin(angle) * radiusY
                     });
                 }
                 
@@ -462,9 +472,13 @@ const VoronoiShardSystem = {
         
         layerShards.totalCount = layerShards.shards.length;
         
+        const hitTestCache = {};
         layerShards.shards.forEach(shard => {
             this.calculateShardBounds(shard);
+            hitTestCache[shard.id] = shard;
         });
+        
+        layerShards.hitTestCache = hitTestCache;
     },
     
     calculateShardBounds(shard) {
@@ -501,41 +515,39 @@ const VoronoiShardSystem = {
         const layerDrawX = centerX - dims.width / 2 + layer.x;
         const layerDrawY = centerY - dims.height / 2 + layer.y;
         
-        const minX = Math.min(startX, endX);
-        const minY = Math.min(startY, endY);
-        const maxX = Math.max(startX, endX);
-        const maxY = Math.max(startY, endY);
+        const carveMinX = Math.min(startX, endX);
+        const carveMinY = Math.min(startY, endY);
+        const carveMaxX = Math.max(startX, endX);
+        const carveMaxY = Math.max(startY, endY);
+        
+        const carveCenterX = (carveMinX + carveMaxX) / 2;
+        const carveCenterY = (carveMinY + carveMaxY) / 2;
         
         const layerShards = this.shards[layerId];
         let carved = false;
         
-        layerShards.shards.forEach(shard => {
-            if (shard.broken) return;
+        for (let i = 0; i < layerShards.shards.length; i++) {
+            const shard = layerShards.shards[i];
+            if (shard.broken) continue;
             
             const shardScreenX = layerDrawX + shard.bounds.minX;
             const shardScreenY = layerDrawY + shard.bounds.minY;
             
-            if (shardScreenX + shard.bounds.width < minX || shardScreenX > maxX ||
-                shardScreenY + shard.bounds.height < minY || shardScreenY > maxY) {
-                return;
+            if (shardScreenX + shard.bounds.width < carveMinX || shardScreenX > carveMaxX ||
+                shardScreenY + shard.bounds.height < carveMinY || shardScreenY > carveMaxY) {
+                continue;
             }
             
-            for (let i = shard.bounds.minX; i <= shard.bounds.maxX; i += 5) {
-                for (let j = shard.bounds.minY; j <= shard.bounds.maxY; j += 5) {
-                    const testX = layerDrawX + i;
-                    const testY = layerDrawY + j;
-                    
-                    if (testX >= minX && testX <= maxX && testY >= minY && testY <= maxY) {
-                        if (this.pointInPolygon(i, j, shard.vertices)) {
-                            this.breakShard(layerId, shard, layerDrawX, layerDrawY, dims);
-                            layerShards.brokenCount++;
-                            carved = true;
-                            return;
-                        }
-                    }
-                }
+            const shardCenterX = layerDrawX + shard.x;
+            const shardCenterY = layerDrawY + shard.y;
+            
+            if (shardCenterX >= carveMinX && shardCenterX <= carveMaxX &&
+                shardCenterY >= carveMinY && shardCenterY <= carveMaxY) {
+                this.breakShard(layerId, shard, layerDrawX, layerDrawY, dims);
+                layerShards.brokenCount++;
+                carved = true;
             }
-        });
+        }
         
         if (layerShards.brokenCount >= layerShards.totalCount) {
             this.destroyLayer(layerId);
