@@ -1,5 +1,7 @@
+console.log("[GAME] JavaScript loading...");
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+console.log("[GAME] Canvas initialized");
 
 const BASE_WIDTH = 800;
 const BASE_HEIGHT = 600;
@@ -316,18 +318,24 @@ const SubjectSegmentation = {
     featherRadius: 10,
     
     async init() {
-        if (this.segmenter || this.isLoading) return;
+        if (this.segmenter) return;
+        if (this.isLoading) {
+            while (this.isLoading) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+            return;
+        }
         this.isLoading = true;
         
         try {
             this.segmenter = await bodySegmentation.createSegmenter(
-                bodySegmentation.SupportedModels.BodyPix,
-                { architecture: 'MobileNetV1', outputStride: 16, quantBytes: 2 }
+                bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation,
+                { runtime: 'mediapipe', solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation' }
             );
             this.isReady = true;
-            if (this.debugMode) console.log('[Segmentation] Model ready');
+            console.log('[Segmentation] Model ready');
         } catch (err) {
-            console.error('[Segmentation] Model load failed:', err);
+            console.error('[Segmentation] Model load failed:', err.message || err);
             this.isReady = false;
         }
         this.isLoading = false;
@@ -336,57 +344,52 @@ const SubjectSegmentation = {
     async generateMask(layerId, imageElement, width, height) {
         if (this.debugMode) console.log('[Segmentation] Generating mask for', layerId);
         
-        if (!this.isReady) await this.init();
+        if (!imageElement || !imageElement.complete || !imageElement.naturalWidth || !imageElement.naturalHeight) {
+            if (this.debugMode) console.log('[Segmentation] Image not ready');
+            return null;
+        }
         
-        const maskCanvas = document.createElement('canvas');
-        maskCanvas.width = width;
-        maskCanvas.height = height;
-        const maskCtx = maskCanvas.getContext('2d');
-        
-        let subjectDetected = false;
-        let foregroundPixels = 0;
-        
-        if (this.segmenter && imageElement.complete) {
-            try {
-                const segmentation = await this.segmenter.segmentPerson(imageElement);
-                
-                const maskData = maskCtx.createImageData(width, height);
-                const pixels = maskData.data;
-                const segmentationData = segmentation.segmentationMask.data;
-                const totalPixels = segmentationData.length;
-                
-                for (let i = 0; i < totalPixels; i++) {
-                    const confidence = segmentationData[i];
-                    const idx = i * 4;
-                    
-                    if (confidence > this.confidenceThreshold) {
-                        subjectDetected = true;
-                        foregroundPixels++;
-                        pixels[idx] = 255;
-                        pixels[idx + 1] = 255;
-                        pixels[idx + 2] = 255;
-                        pixels[idx + 3] = 255;
-                    } else {
-                        pixels[idx] = 0;
-                        pixels[idx + 1] = 0;
-                        pixels[idx + 2] = 0;
-                        pixels[idx + 3] = 0;
-                    }
-                }
-                
-                maskCtx.putImageData(maskData, 0, 0);
-                
-                if (subjectDetected) {
-                    this.applyFeathering(maskCanvas, this.featherRadius);
-                    this.masks[layerId] = maskCanvas;
-                } else {
-                    this.masks[layerId] = null;
-                }
-            } catch (err) {
-                console.error('[Segmentation] Error:', err);
+        try {
+            if (!this.isReady) await this.init();
+            if (!this.segmenter) {
+                if (this.debugMode) console.log('[Segmentation] No segmenter');
+                return null;
+            }
+            
+            const maskCanvas = document.createElement('canvas');
+            maskCanvas.width = width;
+            maskCanvas.height = height;
+            const maskCtx = maskCanvas.getContext('2d');
+            
+            const segmentations = await this.segmenter.segmentPeople(imageElement);
+            
+            if (!segmentations || segmentations.length === 0) {
+                if (this.debugMode) console.log('[Segmentation] No people detected');
+                this.masks[layerId] = null;
+                return null;
+            }
+            
+            const binaryMask = await bodySegmentation.toBinaryMask(segmentations, 
+                { r: 255, g: 255, b: 255, a: 255 },
+                { r: 0, g: 0, b: 0, a: 0 },
+                false,
+                this.confidenceThreshold
+            );
+            
+            let foregroundPixels = 0;
+            for (let i = 0; i < binaryMask.data.length; i += 4) {
+                if (binaryMask.data[i + 3] > 128) foregroundPixels++;
+            }
+            
+            if (foregroundPixels > 100) {
+                maskCtx.putImageData(binaryMask, 0, 0);
+                this.applyFeathering(maskCanvas, this.featherRadius);
+                this.masks[layerId] = maskCanvas;
+            } else {
                 this.masks[layerId] = null;
             }
-        } else {
+        } catch (err) {
+            console.error('[Segmentation] Error:', err.message || err);
             this.masks[layerId] = null;
         }
         
@@ -955,10 +958,10 @@ function update(dt) {
     const now = performance.now();
     if (now - lastNavTime > 200) {
         if (gameState.keys['ArrowRight'] || gameState.keys['d']) {
-            ImageLoader.next();
+            CharacterLoader.nextCharacter();
             lastNavTime = now;
         } else if (gameState.keys['ArrowLeft'] || gameState.keys['a']) {
-            ImageLoader.previous();
+            CharacterLoader.previousCharacter();
             lastNavTime = now;
         }
     }
@@ -987,28 +990,20 @@ function render() {
     if (LayeredRenderer.getLayerCount() > 0) {
         LayeredRenderer.renderLayers(centerX, centerY);
         FragmentSystem.render();
-                
-                ctx.strokeStyle = '#ff6b6b';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.strokeRect(drawX - 2, drawY - 2, dims.width + 4, dims.height + 4);
-                ctx.setLineDash([]);
-            }
-        }
         
-        const char = ImageLoader.getCurrentCharacter();
+        const char = CharacterLoader.currentCharacter;
         if (char) {
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 24px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(char.name, centerX, centerY + maxHeight / 2 + 40);
+            ctx.fillText(char, centerX, centerY + maxHeight / 2 + 40);
             
             ctx.font = '16px Arial';
             ctx.fillStyle = '#aaa';
             const detachedCount = LayeredRenderer.getDetachedCount();
-            const layerInfo = `Layers: ${LayeredRenderer.getLayerCount()} | Detached: ${detachedCount} | Order: ${gameState.layers.layerOrder.join(' > ')}`;
+            const layerInfo = `Layers: ${LayeredRenderer.getLayerCount()} | Detached: ${detachedCount}`;
             ctx.fillText(layerInfo, centerX, centerY + maxHeight / 2 + 70);
-            ctx.fillText('Drag to carve pieces | Press R to restore | Press R to restore all', centerX, centerY + maxHeight / 2 + 95);
+            ctx.fillText('Press R to restore | Press L to load image', centerX, centerY + maxHeight / 2 + 95);
         }
     } else {
         ctx.fillStyle = '#fff';
@@ -1051,6 +1046,11 @@ function gameLoop(timestamp) {
 }
 
 window.addEventListener('keydown', (e) => {
+    if (currentMode === GameMode.MENU) {
+        currentMode = GameMode.GAME;
+        document.getElementById('menuOverlay')?.classList.remove('active');
+    }
+    
     gameState.keys[e.key] = true;
     
     if (e.key === 'r' || e.key === 'R') {
@@ -1217,7 +1217,7 @@ const GameMode = {
     FUSION: 'fusion'
 };
 
-let currentMode = GameMode.MENU;
+let currentMode = GameMode.GAME;
 
 const MenuSystem = {
     submissions: [],
@@ -1593,7 +1593,9 @@ const FusionRenderer = {
     }
 };
 
-MenuSystem.init();
+setTimeout(() => {
+    MenuSystem.showMainMenu();
+}, 500);
 
 const CharacterManager = {
     characters: [],
@@ -1701,13 +1703,20 @@ const CharacterLoader = {
         LayeredRenderer.addLayer('character_base', imageUrl, 1);
         
         setTimeout(async () => {
-            const layer = LayeredRenderer.getLayer('character_base');
-            if (layer && layer.loaded && layer.image) {
-                const dims = LayeredRenderer.getScaledDimensions(layer);
-                await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
-                FragmentSystem.initLayerShards('character_base');
-            }
-        }, 100);
+            let retries = 0;
+            const trySegment = async () => {
+                const layer = LayeredRenderer.getLayer('character_base');
+                if (layer && layer.loaded && layer.image && layer.image.complete && layer.image.naturalWidth > 0) {
+                    const dims = LayeredRenderer.getScaledDimensions(layer);
+                    await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
+                    FragmentSystem.initLayerShards('character_base');
+                } else if (retries < 10) {
+                    retries++;
+                    setTimeout(trySegment, 200);
+                }
+            };
+            trySegment();
+        }, 200);
     },
     
     loadFromFile(file) {
@@ -1720,13 +1729,20 @@ const CharacterLoader = {
         LayeredRenderer.addLayer('character_base', url, 1);
         
         setTimeout(async () => {
-            const layer = LayeredRenderer.getLayer('character_base');
-            if (layer && layer.loaded && layer.image) {
-                const dims = LayeredRenderer.getScaledDimensions(layer);
-                await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
-                FragmentSystem.initLayerShards('character_base');
-            }
-        }, 100);
+            let retries = 0;
+            const trySegment = async () => {
+                const layer = LayeredRenderer.getLayer('character_base');
+                if (layer && layer.loaded && layer.image && layer.image.complete && layer.image.naturalWidth > 0) {
+                    const dims = LayeredRenderer.getScaledDimensions(layer);
+                    await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
+                    FragmentSystem.initLayerShards('character_base');
+                } else if (retries < 10) {
+                    retries++;
+                    setTimeout(trySegment, 200);
+                }
+            };
+            trySegment();
+        }, 200);
     },
     
     clearAll() {
@@ -1750,9 +1766,56 @@ const CharacterLoader = {
 resizeCanvas();
 requestAnimationFrame(gameLoop);
 
-LayeredRenderer.addLayer('body', 'images/layer_body.png', 1);
-LayeredRenderer.addLayer('outfit', 'images/layer_outfit.png', 2);
-LayeredRenderer.addLayer('weapon', 'images/layer_weapon.png', 3);
-LayeredRenderer.addLayer('effects', 'images/layer_effects.png', 4);
+window.onerror = function(message, source, lineno, colno, error) {
+    console.error("[Global Error]", message, "at line", lineno);
+    return false;
+};
 
-CharacterManager.load().catch(() => {});
+console.log("[Init] Starting...");
+try {
+    console.log("[Init] CharacterLoader:", typeof CharacterLoader);
+    console.log("[Init] LayeredRenderer:", typeof LayeredRenderer);
+    console.log("[Init] SubjectSegmentation:", typeof SubjectSegmentation);
+} catch (e) {
+    console.error("[Init] Error:", e.message);
+}
+console.log("[Init] LayeredRenderer defined:", typeof LayeredRenderer !== 'undefined');
+console.log("[Init] SubjectSegmentation defined:", typeof SubjectSegmentation !== 'undefined');
+
+document.getElementById('menuOverlay')?.classList.remove('active');
+
+requestAnimationFrame(() => {
+    console.log("[Init] First frame");
+    console.log("[Init] CharacterLoader type:", typeof CharacterLoader);
+    if (typeof CharacterLoader === 'undefined') {
+        console.error("[Init] CharacterLoader is MISSING!");
+    }
+});
+
+setTimeout(() => {
+    console.log("[Init] After 1s - CharacterLoader:", typeof CharacterLoader);
+    console.log("[Init] After 1s - currentMode:", currentMode);
+}, 1000);
+
+const tfReady = setInterval(() => {
+    if (typeof bodySegmentation !== 'undefined') {
+        clearInterval(tfReady);
+        console.log('[TensorFlow] Libraries loaded');
+        CharacterManager.load().catch(() => {});
+    }
+}, 100);
+
+setTimeout(() => {
+    clearInterval(tfReady);
+    CharacterManager.load().catch(() => {});
+    console.log('[Segmentation] Ready:', SubjectSegmentation.isReady);
+}, 2000);
+
+setTimeout(() => {
+    const chars = CharacterManager.getAll();
+    if (chars && chars.length > 0) {
+        CharacterLoader.load(chars[0].name, chars[0].url);
+    }
+}, 2500);
+
+console.log("[GAME] Initialization complete");
