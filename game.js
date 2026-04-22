@@ -1014,6 +1014,19 @@ window.addEventListener('keydown', (e) => {
         document.getElementById('charFileInput').click();
     }
     
+    if (e.key === ']' || e.key === '}') {
+        CharacterLoader.nextCharacter();
+    }
+    
+    if (e.key === '[' || e.key === '{') {
+        CharacterLoader.previousCharacter();
+    }
+    
+    if (e.key >= '1' && e.key <= '9') {
+        const index = parseInt(e.key) - 1;
+        CharacterLoader.loadCharacter(index);
+    }
+    
     if (e.key === 'Escape') {
         const overlay = document.getElementById('menuOverlay');
         if (overlay.classList.contains('active')) {
@@ -1522,6 +1535,51 @@ const CharacterManager = {
 
 const CharacterLoader = {
     currentCharacter: null,
+    
+    loadCharacter(identifier) {
+        let character = null;
+        
+        if (typeof identifier === 'number') {
+            const chars = CharacterManager.getAll();
+            character = chars[identifier];
+        } else if (typeof identifier === 'string') {
+            character = CharacterManager.getById(identifier);
+            if (!character) {
+                const chars = CharacterManager.getAll();
+                character = chars.find(c => c.name.toLowerCase() === identifier.toLowerCase());
+            }
+        }
+        
+        if (!character) {
+            console.warn('Character not found:', identifier);
+            return false;
+        }
+        
+        this.load(character.name, character.imagePath);
+        return true;
+    },
+    
+    nextCharacter() {
+        const chars = CharacterManager.getAll();
+        if (chars.length === 0) return false;
+        
+        const currentIndex = this.currentCharacter ? 
+            chars.findIndex(c => c.name === this.currentCharacter) : -1;
+        const nextIndex = (currentIndex + 1) % chars.length;
+        
+        return this.loadCharacter(nextIndex);
+    },
+    
+    previousCharacter() {
+        const chars = CharacterManager.getAll();
+        if (chars.length === 0) return false;
+        
+        const currentIndex = this.currentCharacter ? 
+            chars.findIndex(c => c.name === this.currentCharacter) : 0;
+        const prevIndex = (currentIndex - 1 + chars.length) % chars.length;
+        
+        return this.loadCharacter(prevIndex);
+    },
     
     load(characterName, imageUrl) {
         this.clearAll();
