@@ -323,6 +323,7 @@ const SubjectSegmentation = {
     masks: {},
     isReady: false,
     isLoading: false,
+    debugOverlay: false,
     
     async init() {
         if (this.segmenter || this.isLoading) return;
@@ -339,16 +340,21 @@ const SubjectSegmentation = {
             );
             this.segmenter = model;
             this.isReady = true;
-            console.log('Subject segmentation ready');
+            console.log('[SubjectSegmentation] Model loaded successfully');
         } catch (err) {
-            console.warn('Segmentation not available:', err);
+            console.warn('[SubjectSegmentation] Model failed to load:', err);
             this.isReady = false;
         }
         this.isLoading = false;
     },
     
     async generateMask(layerId, imageElement, width, height) {
+        console.log('[SubjectSegmentation] generateMask called for layer:', layerId);
+        console.log('[SubjectSegmentation] Image dimensions:', imageElement.width, 'x', imageElement.height);
+        console.log('[SubjectSegmentation] Target mask dimensions:', width, 'x', height);
+        
         if (!this.isReady) {
+            console.log('[SubjectSegmentation] Model not ready, initializing...');
             await this.init();
         }
         
@@ -357,9 +363,14 @@ const SubjectSegmentation = {
         maskCanvas.height = height;
         const maskCtx = maskCanvas.getContext('2d');
         
+        let subjectDetected = false;
+        let foregroundPixels = 0;
+        
         if (this.segmenter && imageElement.complete) {
             try {
+                console.log('[SubjectSegmentation] Running segmentation...');
                 const segmentation = await this.segmenter.segmentPerson(imageElement);
+                console.log('[SubjectSegmentation] Segmentation complete');
                 
                 const maskData = maskCtx.createImageData(width, height);
                 const pixels = maskData.data;
@@ -367,10 +378,12 @@ const SubjectSegmentation = {
                 const segmentationData = segmentation.segmentationMask.data;
                 
                 for (let i = 0; i < segmentationData.length; i++) {
-                    const isPerson = segmentationData[i] > 0.5;
+                    const confidence = segmentationData[i];
                     const idx = i * 4;
                     
-                    if (isPerson) {
+                    if (confidence > 0.5) {
+                        subjectDetected = true;
+                        foregroundPixels++;
                         pixels[idx] = 255;
                         pixels[idx + 1] = 255;
                         pixels[idx + 2] = 255;
@@ -383,12 +396,22 @@ const SubjectSegmentation = {
                     }
                 }
                 
+                console.log('[SubjectSegmentation] Foreground pixels:', foregroundPixels, '/', segmentationData.length);
+                console.log('[SubjectSegmentation] Subject detected:', subjectDetected);
+                
                 maskCtx.putImageData(maskData, 0, 0);
             } catch (err) {
-                console.warn('Segmentation failed, using full mask:', err);
-                maskCtx.fillStyle = 'white';
-                maskCtx.fillRect(0, 0, width, height);
+                console.error('[SubjectSegmentation] Segmentation error:', err);
+                console.warn('[SubjectSegmentation] NOT falling back to full mask - shards will cover nothing');
+                maskCtx.clearRect(0, 0, width, height);
             }
+        } else {
+            console.warn('[SubjectSegmentation] Image not ready, no segmentation performed');
+        }
+        
+        if (!subjectDetected) {
+            console.log('[SubjectSegmentation] WARNING: No subject detected! Shards will NOT be generated.');
+        }
         } else {
             maskCtx.fillStyle = 'white';
             maskCtx.fillRect(0, 0, width, height);
@@ -424,11 +447,24 @@ const SubjectSegmentation = {
     
     isPointInMask(layerId, x, y) {
         const mask = this.masks[layerId];
-        if (!mask) return true;
+        
+        if (!mask) {
+            console.log('[SubjectSegmentation] No mask exists for layer:', layerId);
+            return false;
+        }
+        
+        const px = Math.floor(x);
+        const py = Math.floor(y);
+        
+        if (px < 0 || px >= mask.width || py < 0 || py >= mask.height) {
+            return false;
+        }
         
         const ctx = mask.getContext('2d');
-        const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
-        return pixel[3] > 128;
+        const pixel = ctx.getImageData(px, py, 1, 1).data;
+        const inMask = pixel[3] > 128;
+        
+        return inMask;
     },
     
     clearMask(layerId) {
@@ -538,6 +574,9 @@ const VoronoiShardSystem = {
         const width = dims.width;
         const height = dims.height;
         
+        console.log('[FragmentSystem] initLayerShards for layer:', layerId);
+        console.log('[FragmentSystem] Layer dimensions:', width, 'x', height);
+        
         const desiredCount = targetCount || 250;
         
         this.shards[layerId] = {
@@ -551,6 +590,11 @@ const VoronoiShardSystem = {
         const layerShards = this.shards[layerId];
         
         const mask = SubjectSegmentation.getMask(layerId);
+        console.log('[FragmentSystem] Mask available:', !!mask);
+        
+        if (!mask) {
+            console.log('[FragmentSystem] WARNING: No mask - shards will be generated across full image!');
+        }
         
         const area = width * height;
         const cellArea = area / desiredCount;
@@ -562,14 +606,22 @@ const VoronoiShardSystem = {
         const actualCellW = width / cols;
         const actualCellH = height / rows;
         
+        let maskCheckCount = 0;
+        let inMaskCount = 0;
+        
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < cols; col++) {
                 const cx = col * actualCellW + actualCellW / 2;
                 const cy = row * actualCellH + actualCellH / 2;
                 
-                if (mask && !SubjectSegmentation.isPointInMask(layerId, cx, cy)) {
+                maskCheckCount++;
+                const pointInMask = mask ? SubjectSegmentation.isPointInMask(layerId, cx, cy) : true;
+                
+                if (!pointInMask) {
                     continue;
                 }
+                
+                inMaskCount++;
                 
                 const jitterX = (Math.random() - 0.5) * actualCellW * 0.5;
                 const jitterY = (Math.random() - 0.5) * actualCellH * 0.5;
@@ -610,6 +662,15 @@ const VoronoiShardSystem = {
         }
         
         layerShards.totalCount = layerShards.shards.length;
+        
+        console.log('[FragmentSystem] Shard generation complete:');
+        console.log('[FragmentSystem] - Grid cells checked:', maskCheckCount);
+        console.log('[FragmentSystem] - Shards generated:', inMaskCount);
+        console.log('[FragmentSystem] - Shards in mask:', inMaskCount, '/', maskCheckCount);
+        
+        if (mask && inMaskCount === 0) {
+            console.log('[FragmentSystem] CRITICAL: No shards generated in mask area!');
+        }
         
         const hitTestCache = {};
         layerShards.shards.forEach(shard => {
