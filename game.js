@@ -309,6 +309,130 @@ const LayeredRenderer = {
     }
 };
 
+const SubjectSegmentation = {
+    segmenter: null,
+    masks: {},
+    isReady: false,
+    isLoading: false,
+    
+    async init() {
+        if (this.segmenter || this.isLoading) return;
+        
+        this.isLoading = true;
+        try {
+            const model = await bodySegmentation.createSegmenter(
+                bodySegmentation.SupportedModels.BodyPix,
+                {
+                    architecture: 'MobileNetV1',
+                    outputStride: 16,
+                    quantBytes: 2
+                }
+            );
+            this.segmenter = model;
+            this.isReady = true;
+            console.log('Subject segmentation ready');
+        } catch (err) {
+            console.warn('Segmentation not available:', err);
+            this.isReady = false;
+        }
+        this.isLoading = false;
+    },
+    
+    async generateMask(layerId, imageElement, width, height) {
+        if (!this.isReady) {
+            await this.init();
+        }
+        
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = width;
+        maskCanvas.height = height;
+        const maskCtx = maskCanvas.getContext('2d');
+        
+        if (this.segmenter && imageElement.complete) {
+            try {
+                const segmentation = await this.segmenter.segmentPerson(imageElement);
+                
+                const maskData = maskCtx.createImageData(width, height);
+                const pixels = maskData.data;
+                
+                const segmentationData = segmentation.segmentationMask.data;
+                
+                for (let i = 0; i < segmentationData.length; i++) {
+                    const isPerson = segmentationData[i] > 0.5;
+                    const idx = i * 4;
+                    
+                    if (isPerson) {
+                        pixels[idx] = 255;
+                        pixels[idx + 1] = 255;
+                        pixels[idx + 2] = 255;
+                        pixels[idx + 3] = 255;
+                    } else {
+                        pixels[idx] = 0;
+                        pixels[idx + 1] = 0;
+                        pixels[idx + 2] = 0;
+                        pixels[idx + 3] = 0;
+                    }
+                }
+                
+                maskCtx.putImageData(maskData, 0, 0);
+            } catch (err) {
+                console.warn('Segmentation failed, using full mask:', err);
+                maskCtx.fillStyle = 'white';
+                maskCtx.fillRect(0, 0, width, height);
+            }
+        } else {
+            maskCtx.fillStyle = 'white';
+            maskCtx.fillRect(0, 0, width, height);
+        }
+        
+        this.applyFeathering(maskCanvas, 15);
+        
+        this.masks[layerId] = maskCanvas;
+        return maskCanvas;
+    },
+    
+    applyFeathering(canvas, radius) {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        tempCtx.filter = `blur(${radius}px)`;
+        tempCtx.drawImage(canvas, 0, 0);
+        
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(tempCanvas, 0, 0);
+        ctx.globalAlpha = 1;
+    },
+    
+    getMask(layerId) {
+        return this.masks[layerId] || null;
+    },
+    
+    isPointInMask(layerId, x, y) {
+        const mask = this.masks[layerId];
+        if (!mask) return true;
+        
+        const ctx = mask.getContext('2d');
+        const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+        return pixel[3] > 128;
+    },
+    
+    clearMask(layerId) {
+        if (this.masks[layerId]) {
+            delete this.masks[layerId];
+        }
+    },
+    
+    clearAll() {
+        this.masks = {};
+    }
+};
+
 const VoronoiShardSystem = {
     shards: {},
     shardCount: 300,
@@ -417,6 +541,8 @@ const VoronoiShardSystem = {
         
         const layerShards = this.shards[layerId];
         
+        const mask = SubjectSegmentation.getMask(layerId);
+        
         const area = width * height;
         const cellArea = area / desiredCount;
         const cellSize = Math.sqrt(cellArea);
@@ -431,6 +557,10 @@ const VoronoiShardSystem = {
             for (let col = 0; col < cols; col++) {
                 const cx = col * actualCellW + actualCellW / 2;
                 const cy = row * actualCellH + actualCellH / 2;
+                
+                if (mask && !SubjectSegmentation.isPointInMask(layerId, cx, cy)) {
+                    continue;
+                }
                 
                 const jitterX = (Math.random() - 0.5) * actualCellW * 0.5;
                 const jitterY = (Math.random() - 0.5) * actualCellH * 0.5;
@@ -1056,6 +1186,23 @@ function handleInputStart(x, y) {
     if (layerId && LayeredRenderer.getLayer(layerId)?.loaded) {
         const layer = LayeredRenderer.getLayer(layerId);
         
+        const gamePos = screenToGame(x, y);
+        const dims = LayeredRenderer.getScaledDimensions(layer);
+        const layerDrawX = LayeredRenderer.centerX - dims.width / 2 + layer.x;
+        const layerDrawY = LayeredRenderer.centerY - dims.height / 2 + layer.y;
+        const localX = gamePos.x - layerDrawX;
+        const localY = gamePos.y - layerDrawY;
+        
+        if (!SubjectSegmentation.isPointInMask(layerId, localX, localY)) {
+            const pos = screenToGame(x, y);
+            gameState.input.active = true;
+            gameState.input.startX = pos.x;
+            gameState.input.startY = pos.y;
+            gameState.input.currentX = pos.x;
+            gameState.input.currentY = pos.y;
+            return;
+        }
+        
         if (!FragmentSystem.shards || !FragmentSystem.shards[layerId]) {
             FragmentSystem.initLayerShards(layerId);
         }
@@ -1067,7 +1214,6 @@ function handleInputStart(x, y) {
         gameState.input.currentX = x;
         gameState.input.currentY = y;
         
-        const gamePos = screenToGame(x, y);
         const carveRadius = 30;
         FragmentSystem.carveArea(layerId, 
             gamePos.x - carveRadius, gamePos.y - carveRadius,
@@ -1652,9 +1798,11 @@ const CharacterLoader = {
         
         LayeredRenderer.addLayer('character_base', imageUrl, 1);
         
-        setTimeout(() => {
+        setTimeout(async () => {
             const layer = LayeredRenderer.getLayer('character_base');
-            if (layer && layer.loaded) {
+            if (layer && layer.loaded && layer.image) {
+                const dims = LayeredRenderer.getScaledDimensions(layer);
+                await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
                 FragmentSystem.initLayerShards('character_base');
             }
         }, 100);
@@ -1669,9 +1817,11 @@ const CharacterLoader = {
         
         LayeredRenderer.addLayer('character_base', url, 1);
         
-        setTimeout(() => {
+        setTimeout(async () => {
             const layer = LayeredRenderer.getLayer('character_base');
-            if (layer && layer.loaded) {
+            if (layer && layer.loaded && layer.image) {
+                const dims = LayeredRenderer.getScaledDimensions(layer);
+                await SubjectSegmentation.generateMask('character_base', layer.image, dims.width, dims.height);
                 FragmentSystem.initLayerShards('character_base');
             }
         }, 100);
@@ -1680,6 +1830,7 @@ const CharacterLoader = {
     clearAll() {
         FragmentSystem.clear();
         FragmentSystem.shards = {};
+        SubjectSegmentation.clearMask('character_base');
         LayeredRenderer.clearAll();
         this.currentCharacter = null;
     },
