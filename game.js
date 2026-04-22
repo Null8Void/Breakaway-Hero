@@ -6,11 +6,6 @@ const BASE_HEIGHT = 600;
 let GAME_WIDTH = BASE_WIDTH;
 let GAME_HEIGHT = BASE_HEIGHT;
 
-if (window.innerWidth < 600) {
-    GAME_WIDTH = window.innerWidth;
-    GAME_HEIGHT = window.innerHeight;
-}
-
 const CENTER_X = BASE_WIDTH / 2;
 const CENTER_Y = BASE_HEIGHT / 2;
 
@@ -22,15 +17,8 @@ function resizeCanvas() {
     const windowWidth = window.innerWidth;
     const windowHeight = window.innerHeight;
     
-    const isMobile = windowWidth < 600;
-    
-    if (isMobile) {
-        GAME_WIDTH = windowWidth;
-        GAME_HEIGHT = window.innerHeight;
-    } else {
-        GAME_WIDTH = Math.min(1200, windowWidth * 0.9);
-        GAME_HEIGHT = Math.min(1600, windowHeight * 0.9);
-    }
+    GAME_WIDTH = windowWidth < 600 ? windowWidth : Math.min(1200, windowWidth * 0.92);
+    GAME_HEIGHT = windowWidth < 600 ? windowHeight : Math.min(1600, windowHeight * 0.92);
     
     const scaleX = windowWidth / BASE_WIDTH;
     const scaleY = windowHeight / BASE_HEIGHT;
