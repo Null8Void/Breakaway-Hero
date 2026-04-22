@@ -1,16 +1,18 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-let GAME_WIDTH = Math.min(1200, window.innerWidth * 0.95);
-let GAME_HEIGHT = Math.min(1600, window.innerHeight * 0.95);
+const BASE_WIDTH = 800;
+const BASE_HEIGHT = 600;
+let GAME_WIDTH = BASE_WIDTH;
+let GAME_HEIGHT = BASE_HEIGHT;
 
 if (window.innerWidth < 600) {
     GAME_WIDTH = window.innerWidth;
     GAME_HEIGHT = window.innerHeight;
 }
 
-const BASE_WIDTH = 800;
-const BASE_HEIGHT = 600;
+const CENTER_X = BASE_WIDTH / 2;
+const CENTER_Y = BASE_HEIGHT / 2;
 
 let scale = 1;
 let offsetX = 0;
@@ -77,8 +79,8 @@ const LayeredRenderer = {
     nextLayerId: 1,
     defaultMaxWidth: 300,
     defaultMaxHeight: 400,
-    centerX: GAME_WIDTH / 2,
-    centerY: GAME_HEIGHT / 2,
+    centerX: CENTER_X,
+    centerY: CENTER_Y,
     detachThreshold: 20,
     
     addLayer(id, url, order) {
@@ -647,8 +649,8 @@ const VoronoiShardSystem = {
         if (!layer || !layer.image || !this.shards[layerId]) return false;
         
         const dims = LayeredRenderer.getScaledDimensions(layer);
-        const centerX = LayeredRenderer.centerX;
-        const centerY = LayeredRenderer.centerY;
+        const centerX = BASE_WIDTH / 2;
+        const centerY = BASE_HEIGHT / 2;
         const layerDrawX = centerX - dims.width / 2;
         const layerDrawY = centerY - dims.height / 2;
         
@@ -980,7 +982,7 @@ function update(dt) {
 
 function render() {
     ctx.fillStyle = '#16213e';
-    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
     
     ctx.fillStyle = '#0f3460';
     for (let i = 0; i < 10; i++) {
@@ -991,8 +993,8 @@ function render() {
         }
     }
     
-    const centerX = GAME_WIDTH / 2;
-    const centerY = GAME_HEIGHT / 2;
+    const centerX = BASE_WIDTH / 2;
+    const centerY = BASE_HEIGHT / 2;
     const maxWidth = LayeredRenderer.defaultMaxWidth;
     const maxHeight = LayeredRenderer.defaultMaxHeight;
     
@@ -1041,7 +1043,7 @@ function render() {
     ctx.font = '20px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('Arrow Keys / WASD to move', GAME_WIDTH / 2, 40);
-    ctx.fillText('Click & Drag / Touch & Drag to move', GAME_WIDTH / 2, 70);
+    ctx.fillText('Click or Touch to carve', BASE_WIDTH / 2, 40);
 }
 
 function gameLoop(timestamp) {
@@ -1150,20 +1152,36 @@ function handleInputStart(x, y) {
 function handleInputMove(x, y) {
     if (!gameState.input.active) return;
     
+    const currentGamePos = screenToGame(x, y);
+    
     if (gameState.layers.dragging) {
-        const currentGamePos = screenToGame(x, y);
-        
         const layerId = gameState.layers.dragging;
         const layer = LayeredRenderer.getLayer(layerId);
         
         if (layer && !layer.destroyed && FragmentSystem.shards && FragmentSystem.shards[layerId]) {
-            FragmentSystem.carveAtPoint(layerId, currentGamePos.x, currentGamePos.y, 12);
+            if (gameState.input.lastX !== undefined) {
+                const prevX = gameState.input.lastX;
+                const prevY = gameState.input.lastY;
+                const currX = currentGamePos.x;
+                const currY = currentGamePos.y;
+                
+                const distance = Math.sqrt((currX - prevX) ** 2 + (currY - prevY) ** 2);
+                const steps = Math.max(1, Math.floor(distance / 8));
+                
+                for (let i = 0; i <= steps; i++) {
+                    const t = i / steps;
+                    const interpX = prevX + (currX - prevX) * t;
+                    const interpY = prevY + (currY - prevY) * t;
+                    FragmentSystem.carveAtPoint(layerId, interpX, interpY, 10);
+                }
+            } else {
+                FragmentSystem.carveAtPoint(layerId, currentGamePos.x, currentGamePos.y, 15);
+            }
         }
     }
     
-    const pos = screenToGame(x, y);
-    gameState.input.currentX = pos.x;
-    gameState.input.currentY = pos.y;
+    gameState.input.lastX = currentGamePos.x;
+    gameState.input.lastY = currentGamePos.y;
 }
 
 function handleInputEnd() {
@@ -1171,6 +1189,8 @@ function handleInputEnd() {
         LayeredRenderer.endDrag();
     }
     gameState.input.active = false;
+    gameState.input.lastX = undefined;
+    gameState.input.lastY = undefined;
 }
 
 canvas.addEventListener('mousedown', (e) => {
@@ -1578,11 +1598,11 @@ const FusionRenderer = {
             ctx.fillStyle = '#e94560';
             ctx.font = 'bold 48px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('Breakaway Hero', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50);
+            ctx.fillText('Breakaway Hero', BASE_WIDTH / 2, BASE_HEIGHT / 2 - 50);
             
             ctx.fillStyle = '#aaa';
             ctx.font = '20px Arial';
-            ctx.fillText('Press any key to start', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20);
+            ctx.fillText('Press any key to start', BASE_WIDTH / 2, BASE_HEIGHT / 2 + 20);
         }
     }
 };
