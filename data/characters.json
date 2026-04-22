@@ -1,5 +1,12 @@
 [
     {
+        "id": "ashe_ulfgarde",
+        "name": "Ashe Ulfgarde",
+        "imagePath": "images/Ashe Ulfgarde.png",
+        "tags": ["archer", "ranger", "ice"],
+        "category": "fighter"
+    },
+    {
         "id": "char_001",
         "name": "Warrior",
         "imagePath": "images/char1.png",
