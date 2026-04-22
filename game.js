@@ -647,15 +647,32 @@ const VoronoiShardSystem = {
         
         const layerShards = this.shards[layerId];
         
-        const gradient = ctx.createLinearGradient(layerDrawX, layerDrawY, layerDrawX + dims.width, layerDrawY + dims.height);
-        gradient.addColorStop(0, 'rgba(40, 40, 50, 0.95)');
-        gradient.addColorStop(0.5, 'rgba(30, 30, 40, 0.95)');
-        gradient.addColorStop(1, 'rgba(20, 20, 30, 0.95)');
+        const baseColorR = 25;
+        const baseColorG = 25;
+        const baseColorB = 30;
+        
+        const globalGrad = ctx.createLinearGradient(layerDrawX, layerDrawY, layerDrawX, layerDrawY + dims.height);
+        globalGrad.addColorStop(0, `rgba(${baseColorR + 15}, ${baseColorG + 15}, ${baseColorB + 20}, 1)`);
+        globalGrad.addColorStop(0.5, `rgba(${baseColorR}, ${baseColorG}, ${baseColorB}, 1)`);
+        globalGrad.addColorStop(1, `rgba(${baseColorR}, ${baseColorG - 5}, ${baseColorB - 5}, 1)`);
         
         layerShards.shards.forEach(shard => {
             if (shard.broken) return;
             
             ctx.save();
+            
+            const shardCenterX = layerDrawX + shard.x;
+            const shardCenterY = layerDrawY + shard.y;
+            
+            const shardGrad = ctx.createLinearGradient(
+                shardCenterX - shard.width / 2,
+                shardCenterY - shard.height / 2,
+                shardCenterX + shard.width / 2,
+                shardCenterY + shard.height / 2
+            );
+            shardGrad.addColorStop(0, 'rgba(45, 45, 55, 1)');
+            shardGrad.addColorStop(0.5, 'rgba(30, 30, 38, 1)');
+            shardGrad.addColorStop(1, 'rgba(20, 20, 28, 1)');
             
             ctx.beginPath();
             ctx.moveTo(layerDrawX + shard.vertices[0].x, layerDrawY + shard.vertices[0].y);
@@ -664,11 +681,27 @@ const VoronoiShardSystem = {
             }
             ctx.closePath();
             
-            ctx.fillStyle = gradient;
+            ctx.fillStyle = shardGrad;
             ctx.fill();
             
-            ctx.strokeStyle = 'rgba(80, 80, 100, 0.4)';
-            ctx.lineWidth = 1.5;
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            
+            ctx.strokeStyle = 'rgba(60, 60, 80, 0.6)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            
+            ctx.shadowColor = 'transparent';
+            
+            ctx.fillStyle = 'rgba(100, 100, 120, 0.15)';
+            ctx.beginPath();
+            ctx.moveTo(layerDrawX + shard.vertices[0].x, layerDrawY + shard.vertices[0].y);
+            for (let i = 1; i < shard.vertices.length; i++) {
+                ctx.lineTo(layerDrawX + shard.vertices[i].x, layerDrawY + shard.vertices[i].y);
+            }
+            ctx.closePath();
             ctx.stroke();
             
             ctx.restore();
@@ -686,9 +719,10 @@ const VoronoiShardSystem = {
             ctx.translate(cx, cy);
             ctx.rotate(frag.rotation);
             
-            const gradient = ctx.createLinearGradient(-frag.width/2, -frag.height/2, frag.width/2, frag.height/2);
-            gradient.addColorStop(0, 'rgba(40, 40, 50, 0.95)');
-            gradient.addColorStop(1, 'rgba(20, 20, 30, 0.95)');
+            const fragGrad = ctx.createLinearGradient(-frag.width/2, -frag.height/2, frag.width/2, frag.height/2);
+            fragGrad.addColorStop(0, 'rgba(45, 45, 55, 1)');
+            fragGrad.addColorStop(0.5, 'rgba(30, 30, 38, 1)');
+            fragGrad.addColorStop(1, 'rgba(20, 20, 28, 1)');
             
             ctx.beginPath();
             ctx.moveTo(frag.vertices[0].x - frag.offsetX - frag.width/2, frag.vertices[0].y - frag.offsetY - frag.height/2);
@@ -697,11 +731,21 @@ const VoronoiShardSystem = {
             }
             ctx.closePath();
             
-            ctx.fillStyle = gradient;
+            ctx.fillStyle = fragGrad;
             ctx.fill();
             
-            ctx.strokeStyle = 'rgba(80, 80, 100, 0.5)';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+            ctx.shadowBlur = 6;
+            ctx.shadowOffsetX = 3;
+            ctx.shadowOffsetY = 3;
+            
+            ctx.strokeStyle = 'rgba(70, 70, 90, 0.7)';
             ctx.lineWidth = 1.5;
+            ctx.stroke();
+            
+            ctx.shadowColor = 'transparent';
+            
+            ctx.fillStyle = 'rgba(120, 120, 140, 0.2)';
             ctx.stroke();
             
             ctx.restore();
