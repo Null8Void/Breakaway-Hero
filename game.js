@@ -393,7 +393,9 @@ const SubjectSegmentation = {
             console.log('[Segmentation] Binary mask stats - Red channel:', foregroundInRed, 'Alpha channel:', foregroundInAlpha);
             
             if (foregroundPixels > 100) {
-                const outputData = maskCtx.createImageData(width, height);
+                const w = Math.floor(width);
+                const h = Math.floor(height);
+                const outputData = maskCtx.createImageData(w, h);
                 for (let i = 0; i < binaryMask.data.length; i += 4) {
                     const isForeground = binaryMask.data[i] > 128;
                     outputData.data[i] = 255;
@@ -403,11 +405,14 @@ const SubjectSegmentation = {
                 }
                 maskCtx.putImageData(outputData, 0, 0);
                 
-                const centerIdx = Math.floor(height/2) * width * 4 + Math.floor(width/2) * 4;
+                const centerX = Math.floor(w/2);
+                const centerY = Math.floor(h/2);
+                const centerIdx = centerY * w * 4 + centerX * 4;
                 const testPxR = outputData.data[centerIdx];
                 const testPxA = outputData.data[centerIdx + 3];
-                console.log('[Segmentation] Output mask test pixel - R:', testPxR, 'A:', testPxA);
-                console.log('[Segmentation] Binary mask test pixel - R:', binaryMask.data[centerIdx]);
+                console.log('[Segmentation] Mask dims:', w, 'x', h, 'center idx:', centerIdx);
+                console.log('[Segmentation] Output mask center R:', testPxR, 'A:', testPxA);
+                console.log('[Segmentation] Binary mask center R:', binaryMask.data[centerIdx], 'A:', binaryMask.data[centerIdx + 3]);
                 
                 this.applyFeathering(maskCanvas, this.featherRadius);
                 this.masks[layerId] = maskCanvas;
@@ -415,8 +420,8 @@ const SubjectSegmentation = {
                 const storedMask = this.masks[layerId];
                 if (storedMask) {
                     const sCtx = storedMask.getContext('2d');
-                    const sPx = sCtx.getImageData(Math.floor(width/2), Math.floor(height/2), 1, 1).data;
-                    console.log('[Segmentation] STORED mask center pixel - R:', sPx[0], 'G:', sPx[1], 'B:', sPx[2], 'A:', sPx[3]);
+                    const sPx = sCtx.getImageData(Math.floor(w/2), Math.floor(h/2), 1, 1).data;
+                    console.log('[Segmentation] STORED mask center - R:', sPx[0], 'A:', sPx[3]);
                 }
                 console.log('[Segmentation] Mask generated, foreground pixels:', foregroundPixels);
             } else {
