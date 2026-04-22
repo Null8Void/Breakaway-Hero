@@ -388,7 +388,15 @@ const SubjectSegmentation = {
             }
             
             if (foregroundPixels > 100) {
-                maskCtx.putImageData(binaryMask, 0, 0);
+                const outputData = maskCtx.createImageData(width, height);
+                for (let i = 0; i < binaryMask.data.length; i += 4) {
+                    const isForeground = binaryMask.data[i] > 128;
+                    outputData.data[i] = 255;
+                    outputData.data[i + 1] = 255;
+                    outputData.data[i + 2] = 255;
+                    outputData.data[i + 3] = isForeground ? 255 : 0;
+                }
+                maskCtx.putImageData(outputData, 0, 0);
                 this.applyFeathering(maskCanvas, this.featherRadius);
                 this.masks[layerId] = maskCanvas;
                 console.log('[Segmentation] Mask generated, foreground pixels:', foregroundPixels);
@@ -570,7 +578,7 @@ const VoronoiShardSystem = {
             try {
                 const maskCtx = mask.getContext('2d');
                 testPixel = maskCtx.getImageData(testX, testY, 1, 1).data;
-                console.log('[ShardSystem] Test pixel at center:', testX, testY, 'alpha:', testPixel[3]);
+                console.log('[ShardSystem] Test pixel at center:', testX, testY, 'alpha:', testPixel[3], 'r:', testPixel[0]);
             } catch (e) {
                 console.log('[ShardSystem] Test pixel ERROR:', e.message);
             }
