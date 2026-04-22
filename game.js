@@ -148,8 +148,8 @@ const LayeredRenderer = {
             if (!layer || !layer.image || layer.destroyed) continue;
             
             const dims = this.getScaledDimensions(layer);
-            const drawX = centerX - dims.width / 2 + layer.x;
-            const drawY = centerY - dims.height / 2 + layer.y;
+            const drawX = centerX - dims.width / 2;
+            const drawY = centerY - dims.height / 2;
             
             ctx.drawImage(layer.image, drawX, drawY, dims.width, dims.height);
             
@@ -211,17 +211,8 @@ const LayeredRenderer = {
         if (!layer) return;
         
         const gamePos = screenToGame(screenX, screenY);
-        const centerX = this.centerX;
-        const centerY = this.centerY;
-        
-        const layerCenterX = centerX + layer.x;
-        const layerCenterY = centerY + layer.y;
         
         gameState.layers.dragging = layerId;
-        gameState.layers.dragOffset = {
-            x: layerCenterX - gamePos.x,
-            y: layerCenterY - gamePos.y
-        };
         gameState.layers.dragStartX = gamePos.x;
         gameState.layers.dragStartY = gamePos.y;
         gameState.layers.pendingDetach = !layer.detached;
@@ -235,11 +226,9 @@ const LayeredRenderer = {
         if (!layer) return;
         
         const gamePos = screenToGame(screenX, screenY);
-        const centerX = this.centerX;
-        const centerY = this.centerY;
         
-        layer.x = gamePos.x + gameState.layers.dragOffset.x - centerX;
-        layer.y = gamePos.y + gameState.layers.dragOffset.y - centerY;
+        layer.x = 0;
+        layer.y = 0;
         
         if (gameState.layers.pendingDetach) {
             const dx = gamePos.x - gameState.layers.dragStartX;
@@ -256,9 +245,10 @@ const LayeredRenderer = {
     endDrag() {
         if (gameState.layers.dragging) {
             const layer = this.layers[gameState.layers.dragging];
-            if (layer && layer.detached && !layer.destroyed) {
+            if (layer) {
                 layer.x = 0;
                 layer.y = 0;
+                layer.detached = false;
             }
         }
         gameState.layers.dragging = null;
@@ -1005,27 +995,6 @@ function render() {
     if (LayeredRenderer.getLayerCount() > 0) {
         LayeredRenderer.renderLayers(centerX, centerY);
         FragmentSystem.render();
-        
-        const draggingLayerId = LayeredRenderer.getDraggingLayer();
-        if (draggingLayerId) {
-            const layer = LayeredRenderer.layers[draggingLayerId];
-            const dims = LayeredRenderer.getScaledDimensions(layer);
-            const drawX = centerX - dims.width / 2 + layer.x;
-            const drawY = centerY - dims.height / 2 + layer.y;
-            
-            ctx.strokeStyle = layer.detached ? '#ff6b6b' : '#ffd93d';
-            ctx.lineWidth = 3;
-            ctx.setLineDash(layer.detached ? [] : [5, 5]);
-            ctx.strokeRect(drawX - 2, drawY - 2, dims.width + 4, dims.height + 4);
-            ctx.setLineDash([]);
-        }
-        
-        for (const layerId of gameState.layers.layerOrder) {
-            const layer = LayeredRenderer.layers[layerId];
-            if (layer && layer.detached && layerId !== draggingLayerId) {
-                const dims = LayeredRenderer.getScaledDimensions(layer);
-                const drawX = centerX - dims.width / 2 + layer.x;
-                const drawY = centerY - dims.height / 2 + layer.y;
                 
                 ctx.strokeStyle = '#ff6b6b';
                 ctx.lineWidth = 2;
@@ -1058,20 +1027,9 @@ function render() {
     }
     
     if (gameState.input.active) {
-        ctx.strokeStyle = '#00ff88';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(gameState.input.currentX, gameState.input.currentY, 25, 0, Math.PI * 2);
-        ctx.stroke();
-        
-        ctx.fillStyle = 'rgba(0, 255, 136, 0.3)';
-        ctx.beginPath();
-        ctx.arc(gameState.input.currentX, gameState.input.currentY, 25, 0, Math.PI * 2);
-        ctx.fill();
-        
         ctx.fillStyle = '#00ff88';
         ctx.beginPath();
-        ctx.arc(gameState.input.currentX, gameState.input.currentY, 5, 0, Math.PI * 2);
+        ctx.arc(gameState.input.currentX, gameState.input.currentY, 3, 0, Math.PI * 2);
         ctx.fill();
     }
     
