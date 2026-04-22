@@ -332,12 +332,14 @@ const SubjectSegmentation = {
         this.isLoading = true;
         
         try {
+            await tf.ready();
+            await tf.setBackend('webgl');
             this.segmenter = await bodySegmentation.createSegmenter(
                 bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation,
-                { runtime: 'tfjs', modelType: 'general' }
+                { runtime: 'tfjs' }
             );
             this.isReady = true;
-            console.log('[Segmentation] Model ready');
+            console.log('[Segmentation] Model ready, backend:', tf.getBackend());
         } catch (err) {
             console.error('[Segmentation] Model load failed:', err.message || err);
             this.isReady = false;
