@@ -397,6 +397,13 @@ const SubjectSegmentation = {
                     outputData.data[i + 3] = isForeground ? 255 : 0;
                 }
                 maskCtx.putImageData(outputData, 0, 0);
+                
+                const centerIdx = Math.floor(height/2) * width * 4 + Math.floor(width/2) * 4;
+                const testPxR = outputData.data[centerIdx];
+                const testPxA = outputData.data[centerIdx + 3];
+                console.log('[Segmentation] Output mask test pixel - R:', testPxR, 'A:', testPxA);
+                console.log('[Segmentation] Binary mask test pixel - R:', binaryMask.data[centerIdx]);
+                
                 this.applyFeathering(maskCanvas, this.featherRadius);
                 this.masks[layerId] = maskCanvas;
                 console.log('[Segmentation] Mask generated, foreground pixels:', foregroundPixels);
