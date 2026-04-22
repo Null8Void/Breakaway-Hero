@@ -149,34 +149,13 @@ const LayeredRenderer = {
             if (!layer || !layer.image || layer.destroyed) continue;
             
             const dims = this.getScaledDimensions(layer);
-            const drawX = centerX - dims.width / 2 + layer.x;
-            const drawY = centerY - dims.height / 2 + layer.y;
             
-            if (layer.grid) {
-                for (let row = 0; row < layer.grid.rows; row++) {
-                    for (let col = 0; col < layer.grid.cols; col++) {
-                        if (layer.grid.cells[row] && !layer.grid.cells[row][col]) {
-                            const srcX = col * FragmentSystem.cellSize;
-                            const srcY = row * FragmentSystem.cellSize;
-                            const srcW = Math.min(FragmentSystem.cellSize, dims.width - srcX);
-                            const srcH = Math.min(FragmentSystem.cellSize, dims.height - srcY);
-                            
-                            ctx.drawImage(
-                                layer.image,
-                                srcX, srcY, srcW, srcH,
-                                drawX + srcX, drawY + srcY, srcW, srcH
-                            );
-                        }
-                    }
-                }
+            if (FragmentSystem.shards && FragmentSystem.shards[layerId]) {
+                FragmentSystem.renderLayerShards(layerId);
             } else {
-                ctx.drawImage(
-                    layer.image,
-                    drawX,
-                    drawY,
-                    dims.width,
-                    dims.height
-                );
+                const drawX = centerX - dims.width / 2 + layer.x;
+                const drawY = centerY - dims.height / 2 + layer.y;
+                ctx.drawImage(layer.image, drawX, drawY, dims.width, dims.height);
             }
         }
     },
@@ -199,13 +178,22 @@ const LayeredRenderer = {
             if (gamePos.x >= drawX && gamePos.x <= drawX + dims.width &&
                 gamePos.y >= drawY && gamePos.y <= drawY + dims.height) {
                 
-                if (layer.grid) {
+                if (FragmentSystem.shards && FragmentSystem.shards[layerId]) {
+                    const layerShards = FragmentSystem.shards[layerId];
                     const localX = gamePos.x - drawX;
                     const localY = gamePos.y - drawY;
-                    const cellCol = Math.floor(localX / FragmentSystem.cellSize);
-                    const cellRow = Math.floor(localY / FragmentSystem.cellSize);
                     
-                    if (!layer.grid.cells[cellRow] || !layer.grid.cells[cellRow][cellCol]) {
+                    let hitShard = false;
+                    for (const shard of layerShards.shards) {
+                        if (shard.broken) continue;
+                        
+                        if (FragmentSystem.pointInPolygon(localX, localY, shard.vertices)) {
+                            hitShard = true;
+                            break;
+                        }
+                    }
+                    
+                    if (hitShard) {
                         return layerId;
                     }
                 } else {
@@ -321,39 +309,192 @@ const LayeredRenderer = {
     }
 };
 
-const FragmentSystem = {
-    fragments: [],
-    gravity: 500,
+const VoronoiShardSystem = {
+    shards: {},
+    shardCount: 80,
     maxFragments: 200,
-    cellSize: 25,
+    gravity: 500,
+    fragments: [],
     
-    initLayerGrid(layerId) {
+    generateVoronoiPoints(width, height, count) {
+        const points = [];
+        const padding = 20;
+        
+        for (let i = 0; i < count; i++) {
+            points.push({
+                x: padding + Math.random() * (width - padding * 2),
+                y: padding + Math.random() * (height - padding * 2)
+            });
+        }
+        
+        return points;
+    },
+    
+    generateCellPoints(centerX, centerY, allPoints, width, height) {
+        const neighbors = allPoints
+            .map((p, i) => ({ ...p, index: i }))
+            .filter(p => Math.abs(p.x - centerX) < width && Math.abs(p.y - centerY) < height)
+            .sort((a, b) => {
+                const distA = Math.hypot(a.x - centerX, a.y - centerY);
+                const distB = Math.hypot(b.x - centerX, b.y - centerY);
+                return distA - distB;
+            });
+        
+        const numVertices = 3 + Math.floor(Math.random() * 6);
+        const vertices = [];
+        const angleStep = (Math.PI * 2) / numVertices;
+        
+        for (let i = 0; i < numVertices; i++) {
+            const baseAngle = i * angleStep + Math.random() * angleStep * 0.5;
+            const radiusVariance = 0.6 + Math.random() * 0.4;
+            const radius = Math.min(width, height) * 0.5 * radiusVariance;
+            
+            vertices.push({
+                x: centerX + Math.cos(baseAngle) * radius,
+                y: centerY + Math.sin(baseAngle) * radius
+            });
+        }
+        
+        return vertices;
+    },
+    
+    generateEdgeShards(width, height, cellPoints, points) {
+        const edgeShards = [];
+        const margin = 25;
+        
+        const leftPoints = points.filter(p => p.x < margin);
+        const rightPoints = points.filter(p => p.x > width - margin);
+        const topPoints = points.filter(p => p.y < margin);
+        const bottomPoints = points.filter(p => p.y > height - margin);
+        
+        if (leftPoints.length > 0) {
+            const minY = Math.min(...leftPoints.map(p => p.y));
+            const maxY = Math.max(...leftPoints.map(p => p.y));
+            edgeShards.push({
+                x: 0, y: minY, width: margin, height: maxY - minY,
+                vertices: [{x:0,y:minY},{x:margin,y:minY},{x:margin,y:maxY},{x:0,y:maxY}]
+            });
+        }
+        
+        if (rightPoints.length > 0) {
+            const minY = Math.min(...rightPoints.map(p => p.y));
+            const maxY = Math.max(...rightPoints.map(p => p.y));
+            edgeShards.push({
+                x: width - margin, y: minY, width: margin, height: maxY - minY,
+                vertices: [{x:width-margin,y:minY},{x:width,y:minY},{x:width,y:maxY},{x:width-margin,y:maxY}]
+            });
+        }
+        
+        if (topPoints.length > 0) {
+            const minX = Math.min(...topPoints.map(p => p.x));
+            const maxX = Math.max(...topPoints.map(p => p.x));
+            edgeShards.push({
+                x: minX, y: 0, width: maxX - minX, height: margin,
+                vertices: [{x:minX,y:0},{x:maxX,y:0},{x:maxX,y:margin},{x:minX,y:margin}]
+            });
+        }
+        
+        if (bottomPoints.length > 0) {
+            const minX = Math.min(...bottomPoints.map(p => p.x));
+            const maxX = Math.max(...bottomPoints.map(p => p.x));
+            edgeShards.push({
+                x: minX, y: height - margin, width: maxX - minX, height: margin,
+                vertices: [{x:minX,y:height-margin},{x:maxX,y:height-margin},{x:maxX,y:height},{x:minX,y:height}]
+            });
+        }
+        
+        return edgeShards;
+    },
+    
+    initLayerShards(layerId) {
         const layer = LayeredRenderer.layers[layerId];
         if (!layer) return;
         
         const dims = LayeredRenderer.getScaledDimensions(layer);
-        const cols = Math.ceil(dims.width / this.cellSize);
-        const rows = Math.ceil(dims.height / this.cellSize);
+        const width = dims.width;
+        const height = dims.height;
         
-        layer.grid = {
-            cols,
-            rows,
-            cells: [],
-            totalCells: cols * rows,
-            brokenCells: 0
+        const points = this.generateVoronoiPoints(width, height, this.shardCount);
+        
+        this.shards[layerId] = {
+            width,
+            height,
+            shards: [],
+            brokenCount: 0,
+            totalCount: 0
         };
         
-        for (let row = 0; row < rows; row++) {
-            layer.grid.cells[row] = [];
-            for (let col = 0; col < cols; col++) {
-                layer.grid.cells[row][col] = false;
+        const layerShards = this.shards[layerId];
+        
+        points.forEach(point => {
+            const vertices = this.generateCellPoints(point.x, point.y, points, width, height);
+            
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            vertices.forEach(v => {
+                minX = Math.min(minX, v.x);
+                minY = Math.min(minY, v.y);
+                maxX = Math.max(maxX, v.x);
+                maxY = Math.max(maxY, v.y);
+            });
+            
+            layerShards.shards.push({
+                id: 'shard_' + Math.random().toString(36).substr(2, 9),
+                vertices,
+                x: (minX + maxX) / 2,
+                y: (minY + maxY) / 2,
+                width: maxX - minX,
+                height: maxY - minY,
+                broken: false
+            });
+        });
+        
+        const edgeShards = this.generateEdgeShards(width, height, points, points);
+        edgeShards.forEach(edge => {
+            layerShards.shards.push({
+                id: 'edge_' + Math.random().toString(36).substr(2, 9),
+                vertices: edge.vertices,
+                x: edge.x + edge.width / 2,
+                y: edge.y + edge.height / 2,
+                width: edge.width,
+                height: edge.height,
+                broken: false
+            });
+        });
+        
+        layerShards.totalCount = layerShards.shards.length;
+        
+        layerShards.shards.forEach(shard => {
+            this.calculateShardBounds(shard);
+        });
+    },
+    
+    calculateShardBounds(shard) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        shard.vertices.forEach(v => {
+            minX = Math.min(minX, v.x);
+            minY = Math.min(minY, v.y);
+            maxX = Math.max(maxX, v.x);
+            maxY = Math.max(maxY, v.y);
+        });
+        shard.bounds = { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+    },
+    
+    pointInPolygon(px, py, vertices) {
+        let inside = false;
+        for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+            const xi = vertices[i].x, yi = vertices[i].y;
+            const xj = vertices[j].x, yj = vertices[j].y;
+            
+            if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                inside = !inside;
             }
         }
+        return inside;
     },
     
     carveArea(layerId, startX, startY, endX, endY) {
         const layer = LayeredRenderer.layers[layerId];
-        if (!layer || !layer.image || !layer.grid) return;
+        if (!layer || !layer.image || !this.shards[layerId]) return;
         
         const dims = LayeredRenderer.getScaledDimensions(layer);
         const centerX = LayeredRenderer.centerX;
@@ -361,64 +502,75 @@ const FragmentSystem = {
         const layerDrawX = centerX - dims.width / 2 + layer.x;
         const layerDrawY = centerY - dims.height / 2 + layer.y;
         
-        const minX = Math.min(startX, endX) - layerDrawX;
-        const minY = Math.min(startY, endY) - layerDrawY;
-        const maxX = Math.max(startX, endX) - layerDrawX;
-        const maxY = Math.max(startY, endY) - layerDrawY;
+        const minX = Math.min(startX, endX);
+        const minY = Math.min(startY, endY);
+        const maxX = Math.max(startX, endX);
+        const maxY = Math.max(startY, endY);
         
+        const layerShards = this.shards[layerId];
         let carved = false;
         
-        for (let row = 0; row < layer.grid.rows; row++) {
-            for (let col = 0; col < layer.grid.cols; col++) {
-                if (layer.grid.cells[row][col]) continue;
-                
-                const cellX = col * this.cellSize;
-                const cellY = row * this.cellSize;
-                const cellW = Math.min(this.cellSize, dims.width - cellX);
-                const cellH = Math.min(this.cellSize, dims.height - cellY);
-                
-                const cellCenterX = cellX + cellW / 2;
-                const cellCenterY = cellY + cellH / 2;
-                
-                if (cellCenterX >= minX && cellCenterX <= maxX &&
-                    cellCenterY >= minY && cellCenterY <= maxY) {
+        layerShards.shards.forEach(shard => {
+            if (shard.broken) return;
+            
+            const shardScreenX = layerDrawX + shard.bounds.minX;
+            const shardScreenY = layerDrawY + shard.bounds.minY;
+            
+            if (shardScreenX + shard.bounds.width < minX || shardScreenX > maxX ||
+                shardScreenY + shard.bounds.height < minY || shardScreenY > maxY) {
+                return;
+            }
+            
+            for (let i = shard.bounds.minX; i <= shard.bounds.maxX; i += 5) {
+                for (let j = shard.bounds.minY; j <= shard.bounds.maxY; j += 5) {
+                    const testX = layerDrawX + i;
+                    const testY = layerDrawY + j;
                     
-                    const fragX = layerDrawX + cellX;
-                    const fragY = layerDrawY + cellY;
-                    this.createFragment(layerId, fragX, fragY, cellW, cellH);
-                    
-                    layer.grid.cells[row][col] = true;
-                    layer.grid.brokenCells++;
-                    carved = true;
+                    if (testX >= minX && testX <= maxX && testY >= minY && testY <= maxY) {
+                        if (this.pointInPolygon(i, j, shard.vertices)) {
+                            this.breakShard(layerId, shard, layerDrawX, layerDrawY, dims);
+                            layerShards.brokenCount++;
+                            carved = true;
+                            return;
+                        }
+                    }
                 }
             }
-        }
+        });
         
-        if (layer.grid.brokenCells >= layer.grid.totalCells) {
+        if (layerShards.brokenCount >= layerShards.totalCount) {
             this.destroyLayer(layerId);
         }
         
         return carved;
     },
     
-    createFragment(layerId, x, y, width, height) {
+    breakShard(layerId, shard, layerDrawX, layerDrawY, dims) {
+        shard.broken = true;
+        
+        const shardWorldX = layerDrawX + shard.bounds.minX;
+        const shardWorldY = layerDrawY + shard.bounds.minY;
+        
         if (this.fragments.length >= this.maxFragments) {
             this.fragments.shift();
         }
         
         this.fragments.push({
             layerId,
-            x,
-            y,
-            width,
-            height,
+            vertices: shard.vertices.map(v => ({ x: v.x, y: v.y })),
+            x: shardWorldX + shard.bounds.width / 2,
+            y: shardWorldY + shard.bounds.height / 2,
+            width: shard.bounds.width,
+            height: shard.bounds.height,
+            offsetX: shard.bounds.minX,
+            offsetY: shard.bounds.minY,
             vx: (Math.random() - 0.5) * 200,
-            vy: (Math.random() - 0.5) * 200 - 100,
+            vy: (Math.random() - 0.5) * 200 - 80,
             rotation: Math.random() * Math.PI * 2,
-            angularVel: (Math.random() - 0.5) * 8,
+            angularVel: (Math.random() - 0.5) * 6,
             alpha: 1,
             lifetime: 0,
-            maxLifetime: 2 + Math.random() * 2
+            maxLifetime: 2.5 + Math.random() * 1.5
         });
     },
     
@@ -442,8 +594,8 @@ const FragmentSystem = {
         if (!layer) return;
         
         layer.destroyed = false;
-        layer.grid = null;
-        this.initLayerGrid(layerId);
+        this.shards[layerId] = null;
+        this.initLayerShards(layerId);
     },
     
     restoreAllLayers() {
@@ -463,20 +615,18 @@ const FragmentSystem = {
             
             frag.lifetime += dt;
             if (frag.lifetime > frag.maxLifetime) {
-                frag.alpha -= dt * 0.8;
+                frag.alpha -= dt * 0.6;
             }
             
-            if (frag.y > GAME_HEIGHT + 50 || frag.alpha <= 0) {
+            if (frag.y > GAME_HEIGHT + 100 || frag.alpha <= 0) {
                 this.fragments.splice(i, 1);
             }
         }
     },
     
-    renderLayerCell(layerId, cellCol, cellRow) {
+    renderLayerShards(layerId) {
         const layer = LayeredRenderer.layers[layerId];
-        if (!layer || !layer.image || !layer.grid) return;
-        
-        if (layer.grid.cells[cellRow] && layer.grid.cells[cellRow][cellCol]) return;
+        if (!layer || !layer.image || layer.destroyed || !this.shards[layerId]) return;
         
         const dims = LayeredRenderer.getScaledDimensions(layer);
         const centerX = LayeredRenderer.centerX;
@@ -484,19 +634,37 @@ const FragmentSystem = {
         const layerDrawX = centerX - dims.width / 2 + layer.x;
         const layerDrawY = centerY - dims.height / 2 + layer.y;
         
-        const srcX = cellCol * this.cellSize;
-        const srcY = cellRow * this.cellSize;
-        const srcW = Math.min(this.cellSize, dims.width - srcX);
-        const srcH = Math.min(this.cellSize, dims.height - srcY);
+        const layerShards = this.shards[layerId];
         
-        const dstX = layerDrawX + cellCol * this.cellSize;
-        const dstY = layerDrawY + cellRow * this.cellSize;
-        
-        ctx.drawImage(
-            layer.image,
-            srcX, srcY, srcW, srcH,
-            dstX, dstY, srcW, srcH
-        );
+        layerShards.shards.forEach(shard => {
+            if (shard.broken) return;
+            
+            ctx.save();
+            
+            ctx.beginPath();
+            ctx.moveTo(layerDrawX + shard.vertices[0].x, layerDrawY + shard.vertices[0].y);
+            for (let i = 1; i < shard.vertices.length; i++) {
+                ctx.lineTo(layerDrawX + shard.vertices[i].x, layerDrawY + shard.vertices[i].y);
+            }
+            ctx.closePath();
+            ctx.clip();
+            
+            ctx.drawImage(layer.image, layerDrawX, layerDrawY, dims.width, dims.height);
+            
+            ctx.restore();
+            
+            ctx.save();
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(layerDrawX + shard.vertices[0].x, layerDrawY + shard.vertices[0].y);
+            for (let i = 1; i < shard.vertices.length; i++) {
+                ctx.lineTo(layerDrawX + shard.vertices[i].x, layerDrawY + shard.vertices[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+        });
     },
     
     render() {
@@ -507,19 +675,25 @@ const FragmentSystem = {
             ctx.save();
             ctx.globalAlpha = frag.alpha;
             
-            const cx = frag.x + frag.width / 2;
-            const cy = frag.y + frag.height / 2;
+            const cx = frag.x;
+            const cy = frag.y;
             
             ctx.translate(cx, cy);
             ctx.rotate(frag.rotation);
             
-            ctx.drawImage(
-                layer.image,
-                -frag.width / 2,
-                -frag.height / 2,
-                frag.width,
-                frag.height
-            );
+            const dims = LayeredRenderer.getScaledDimensions(layer);
+            const layerDrawX = LayeredRenderer.centerX - dims.width / 2;
+            const layerDrawY = LayeredRenderer.centerY - dims.height / 2;
+            
+            ctx.beginPath();
+            ctx.moveTo(frag.vertices[0].x - frag.offsetX - frag.width/2, frag.vertices[0].y - frag.offsetY - frag.height/2);
+            for (let i = 1; i < frag.vertices.length; i++) {
+                ctx.lineTo(frag.vertices[i].x - frag.offsetX - frag.width/2, frag.vertices[i].y - frag.offsetY - frag.height/2);
+            }
+            ctx.closePath();
+            ctx.clip();
+            
+            ctx.drawImage(layer.image, layerDrawX, layerDrawY, dims.width, dims.height);
             
             ctx.restore();
         }
@@ -533,6 +707,8 @@ const FragmentSystem = {
         return this.fragments.length;
     }
 };
+
+const FragmentSystem = VoronoiShardSystem;
 
 const ImageLoader = {
     characters: [
@@ -806,8 +982,8 @@ function handleInputStart(x, y) {
     if (layerId && LayeredRenderer.getLayer(layerId)?.loaded) {
         const layer = LayeredRenderer.getLayer(layerId);
         
-        if (!layer.grid) {
-            FragmentSystem.initLayerGrid(layerId);
+        if (!FragmentSystem.shards || !FragmentSystem.shards[layerId]) {
+            FragmentSystem.initLayerShards(layerId);
         }
         
         LayeredRenderer.startDrag(layerId, x, y);
@@ -818,12 +994,6 @@ function handleInputStart(x, y) {
         gameState.input.currentY = y;
         
         const gamePos = screenToGame(x, y);
-        const dims = LayeredRenderer.getScaledDimensions(layer);
-        const centerX = LayeredRenderer.centerX;
-        const centerY = LayeredRenderer.centerY;
-        const layerDrawX = centerX - dims.width / 2 + layer.x;
-        const layerDrawY = centerY - dims.height / 2 + layer.y;
-        
         const carveRadius = 30;
         FragmentSystem.carveArea(layerId, 
             gamePos.x - carveRadius, gamePos.y - carveRadius,
@@ -851,8 +1021,8 @@ function handleInputMove(x, y) {
         const layer = LayeredRenderer.getLayer(layerId);
         
         if (layer && !layer.destroyed) {
-            if (!layer.grid) {
-                FragmentSystem.initLayerGrid(layerId);
+            if (!FragmentSystem.shards || !FragmentSystem.shards[layerId]) {
+                FragmentSystem.initLayerShards(layerId);
             }
             
             const carveRadius = 25;
