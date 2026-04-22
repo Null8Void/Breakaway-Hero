@@ -334,7 +334,7 @@ const SubjectSegmentation = {
         try {
             this.segmenter = await bodySegmentation.createSegmenter(
                 bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation,
-                { runtime: 'mediapipe', solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation' }
+                { runtime: 'tfjs', modelType: 'general' }
             );
             this.isReady = true;
             console.log('[Segmentation] Model ready');
