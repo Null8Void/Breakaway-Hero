@@ -1,0 +1,30 @@
+[
+    {
+        "id": "char_001",
+        "name": "Warrior",
+        "imagePath": "images/char1.png",
+        "tags": ["warrior", "combat", "melee"],
+        "category": "fighter"
+    },
+    {
+        "id": "char_002",
+        "name": "Mage",
+        "imagePath": "images/char2.png",
+        "tags": ["mage", "magic", "caster"],
+        "category": "spellcaster"
+    },
+    {
+        "id": "char_003",
+        "name": "Rogue",
+        "imagePath": "images/char3.png",
+        "tags": ["rogue", "stealth", "assassin"],
+        "category": "scout"
+    },
+    {
+        "id": "char_004",
+        "name": "Healer",
+        "imagePath": "images/char4.png",
+        "tags": ["healer", "support", "cleric"],
+        "category": "support"
+    }
+]

@@ -1470,6 +1470,56 @@ const FusionRenderer = {
 
 MenuSystem.init();
 
+const CharacterManager = {
+    characters: [],
+    loaded: false,
+    defaultPath: 'data/characters.json',
+    
+    async load(path) {
+        try {
+            const response = await fetch(path || this.defaultPath);
+            if (!response.ok) throw new Error('Failed to load characters');
+            this.characters = await response.json();
+            this.loaded = true;
+            console.log(`Loaded ${this.characters.length} characters`);
+            return this.characters;
+        } catch (err) {
+            console.warn('Character data not found, using empty list');
+            this.characters = [];
+            this.loaded = true;
+            return [];
+        }
+    },
+    
+    getAll() {
+        return this.characters;
+    },
+    
+    getById(id) {
+        return this.characters.find(c => c.id === id);
+    },
+    
+    getByCategory(category) {
+        return this.characters.filter(c => c.category === category);
+    },
+    
+    getByTag(tag) {
+        return this.characters.filter(c => c.tags && c.tags.includes(tag));
+    },
+    
+    getCount() {
+        return this.characters.length;
+    },
+    
+    addCharacter(character) {
+        this.characters.push(character);
+    },
+    
+    removeCharacter(id) {
+        this.characters = this.characters.filter(c => c.id !== id);
+    }
+};
+
 const CharacterLoader = {
     currentCharacter: null,
     
@@ -1529,3 +1579,5 @@ LayeredRenderer.addLayer('body', 'images/layer_body.png', 1);
 LayeredRenderer.addLayer('outfit', 'images/layer_outfit.png', 2);
 LayeredRenderer.addLayer('weapon', 'images/layer_weapon.png', 3);
 LayeredRenderer.addLayer('effects', 'images/layer_effects.png', 4);
+
+CharacterManager.load().catch(() => {});
