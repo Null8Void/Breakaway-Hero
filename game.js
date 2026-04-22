@@ -945,12 +945,20 @@ window.addEventListener('keydown', (e) => {
     gameState.keys[e.key] = true;
     
     if (e.key === 'r' || e.key === 'R') {
-        const draggingLayerId = LayeredRenderer.getDraggingLayer();
-        if (draggingLayerId) {
-            FragmentSystem.restoreLayer(draggingLayerId);
+        if (CharacterLoader.currentCharacter) {
+            CharacterLoader.reset();
         } else {
-            FragmentSystem.restoreAllLayers();
+            const draggingLayerId = LayeredRenderer.getDraggingLayer();
+            if (draggingLayerId) {
+                FragmentSystem.restoreLayer(draggingLayerId);
+            } else {
+                FragmentSystem.restoreAllLayers();
+            }
         }
+    }
+    
+    if (e.key === 'l' || e.key === 'L') {
+        document.getElementById('charFileInput').click();
     }
     
     if (e.key === 'Escape') {
@@ -1408,6 +1416,58 @@ const FusionRenderer = {
 };
 
 MenuSystem.init();
+
+const CharacterLoader = {
+    currentCharacter: null,
+    
+    load(characterName, imageUrl) {
+        this.clearAll();
+        
+        this.currentCharacter = characterName;
+        
+        LayeredRenderer.addLayer('character_base', imageUrl, 1);
+        
+        setTimeout(() => {
+            const layer = LayeredRenderer.getLayer('character_base');
+            if (layer && layer.loaded) {
+                FragmentSystem.initLayerShards('character_base');
+            }
+        }, 100);
+    },
+    
+    loadFromFile(file) {
+        this.clearAll();
+        
+        this.currentCharacter = file.name.replace(/\.[^/.]+$/, '');
+        
+        const url = URL.createObjectURL(file);
+        
+        LayeredRenderer.addLayer('character_base', url, 1);
+        
+        setTimeout(() => {
+            const layer = LayeredRenderer.getLayer('character_base');
+            if (layer && layer.loaded) {
+                FragmentSystem.initLayerShards('character_base');
+            }
+        }, 100);
+    },
+    
+    clearAll() {
+        FragmentSystem.clear();
+        FragmentSystem.shards = {};
+        LayeredRenderer.clearAll();
+        this.currentCharacter = null;
+    },
+    
+    reset() {
+        if (this.currentCharacter) {
+            const layer = LayeredRenderer.getLayer('character_base');
+            if (layer) {
+                FragmentSystem.restoreLayer('character_base');
+            }
+        }
+    }
+};
 
 resizeCanvas();
 requestAnimationFrame(gameLoop);
