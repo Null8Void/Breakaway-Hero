@@ -1,8 +1,16 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-const GAME_WIDTH = 800;
-const GAME_HEIGHT = 600;
+let GAME_WIDTH = Math.min(1200, window.innerWidth * 0.95);
+let GAME_HEIGHT = Math.min(1600, window.innerHeight * 0.95);
+
+if (window.innerWidth < 600) {
+    GAME_WIDTH = window.innerWidth;
+    GAME_HEIGHT = window.innerHeight;
+}
+
+const BASE_WIDTH = 800;
+const BASE_HEIGHT = 600;
 
 let scale = 1;
 let offsetX = 0;
@@ -12,13 +20,23 @@ function resizeCanvas() {
     const windowWidth = window.innerWidth;
     const windowHeight = window.innerHeight;
     
-    const scaleX = windowWidth / GAME_WIDTH;
-    const scaleY = windowHeight / GAME_HEIGHT;
+    const isMobile = windowWidth < 600;
     
-    scale = Math.min(scaleX, scaleY) * 0.95;
+    if (isMobile) {
+        GAME_WIDTH = windowWidth;
+        GAME_HEIGHT = window.innerHeight;
+    } else {
+        GAME_WIDTH = Math.min(1200, windowWidth * 0.9);
+        GAME_HEIGHT = Math.min(1600, windowHeight * 0.9);
+    }
     
-    canvas.width = GAME_WIDTH * scale;
-    canvas.height = GAME_HEIGHT * scale;
+    const scaleX = windowWidth / BASE_WIDTH;
+    const scaleY = windowHeight / BASE_HEIGHT;
+    
+    scale = Math.min(scaleX, scaleY) * 0.92;
+    
+    canvas.width = BASE_WIDTH * scale;
+    canvas.height = BASE_HEIGHT * scale;
     
     offsetX = (windowWidth - canvas.width) / 2;
     offsetY = (windowHeight - canvas.height) / 2;
