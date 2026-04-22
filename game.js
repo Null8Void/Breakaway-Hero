@@ -360,20 +360,18 @@ const SubjectSegmentation = {
         
         if (this.segmenter && imageElement.complete) {
             try {
-                console.log('[SubjectSegmentation] Running segmentation...');
                 const segmentation = await this.segmenter.segmentPerson(imageElement);
-                console.log('[SubjectSegmentation] Segmentation complete');
                 
                 const maskData = maskCtx.createImageData(width, height);
                 const pixels = maskData.data;
-                
                 const segmentationData = segmentation.segmentationMask.data;
+                const totalPixels = segmentationData.length;
                 
-                for (let i = 0; i < segmentationData.length; i++) {
+                for (let i = 0; i < totalPixels; i++) {
                     const confidence = segmentationData[i];
                     const idx = i * 4;
                     
-                    if (confidence > 0.5) {
+                    if (confidence > this.confidenceThreshold) {
                         subjectDetected = true;
                         foregroundPixels++;
                         pixels[idx] = 255;
@@ -388,23 +386,23 @@ const SubjectSegmentation = {
                     }
                 }
                 
-                if (this.debugMode) {
-            console.log('[Segmentation] Pixels in mask:', foregroundPixels, '/', totalPixels);
-            console.log('[Segmentation] Subject detected:', subjectDetected);
-        }
-        
-        maskCtx.putImageData(maskData, 0, 0);
-        
-        if (subjectDetected) {
-            this.applyFeathering(maskCanvas, this.featherRadius);
-        }
+                maskCtx.putImageData(maskData, 0, 0);
+                
+                if (subjectDetected) {
+                    this.applyFeathering(maskCanvas, this.featherRadius);
+                    this.masks[layerId] = maskCanvas;
+                } else {
+                    this.masks[layerId] = null;
+                }
+            } catch (err) {
+                console.error('[Segmentation] Error:', err);
+                this.masks[layerId] = null;
+            }
         } else {
-            if (this.debugMode) console.log('[Segmentation] No subject - no mask created');
-            maskCtx.clearRect(0, 0, width, height);
+            this.masks[layerId] = null;
         }
         
-        this.masks[layerId] = maskCanvas;
-        return maskCanvas;
+        return this.masks[layerId];
     },
     
     applyFeathering(canvas, radius) {
